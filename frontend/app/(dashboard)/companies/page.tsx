@@ -32,6 +32,7 @@ interface Company {
   createdAt: string;
   userCount: number;
   certificationCount: number;
+  certifications?: any[];
 }
 
 export default function CompaniesPage() {
@@ -54,6 +55,13 @@ export default function CompaniesPage() {
   const [availableCertifications, setAvailableCertifications] = useState<any[]>([]);
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
   const [showCompanyDetail, setShowCompanyDetail] = useState(false);
+  const [showEditModal, setShowEditModal] = useState(false);
+  const [editingCompany, setEditingCompany] = useState<Company | null>(null);
+  const [showDeleteConfirm, setShowDeleteConfirm] = useState(false);
+  const [deletingCompany, setDeletingCompany] = useState<Company | null>(null);
+  const [showUndoNotification, setShowUndoNotification] = useState(false);
+  const [deletedCompanyInfo, setDeletedCompanyInfo] = useState<Company | null>(null);
+  const [deletedCompanies, setDeletedCompanies] = useState<Set<string>>(new Set());
 
   useEffect(() => {
     const token = Cookies.get('accessToken');
@@ -146,11 +154,105 @@ export default function CompaniesPage() {
     }
   };
 
+  const handleEditCompany = (company: Company) => {
+    setEditingCompany(company);
+    setShowEditModal(true);
+  };
+
+  const handleUpdateCompany = async () => {
+    if (!editingCompany) return;
+    
+    try {
+      const response = await apiClient.put(`/companies/${editingCompany.id}`, {
+        name: editingCompany.name,
+        industry: editingCompany.industry,
+        description: editingCompany.description,
+        website: editingCompany.website,
+      });
+
+      console.log('Company updated successfully:', response.data);
+      setShowEditModal(false);
+      setEditingCompany(null);
+      fetchCompanies(); // Refresh the list
+      alert('Company updated successfully!');
+    } catch (error: any) {
+      console.error('Failed to update company:', error);
+      if (error.response) {
+        alert(`Failed to update company: ${error.response.data.message || error.message}`);
+      } else {
+        alert(`Failed to update company: ${error.message}`);
+      }
+    }
+  };
+
+  const handleDeleteCompany = (company: Company) => {
+    setDeletingCompany(company);
+    setShowDeleteConfirm(true);
+  };
+
+  const confirmDeleteCompany = async () => {
+    if (!deletingCompany) return;
+    
+    try {
+      await apiClient.delete(`/companies/${deletingCompany.id}`);
+      
+      // Store deleted company info for undo
+      setDeletedCompanyInfo(deletingCompany);
+      setShowDeleteConfirm(false);
+      setDeletingCompany(null);
+      
+      // Add to deleted companies set
+      setDeletedCompanies(prev => new Set(prev).add(deletingCompany.id));
+      
+      // Show undo notification
+      setShowUndoNotification(true);
+      
+      // Hide undo notification after 5 seconds
+      setTimeout(() => {
+        setShowUndoNotification(false);
+      }, 5000);
+      
+      // Remove from companies list
+      setCompanies(prev => prev.filter(company => company.id !== deletingCompany.id));
+      
+      console.log('Company deleted successfully:', deletingCompany.name);
+    } catch (error: any) {
+      console.error('Failed to delete company:', error);
+      if (error.response) {
+        alert(`Failed to delete company: ${error.response.data.message || error.message}`);
+      } else {
+        alert(`Failed to delete company: ${error.message}`);
+      }
+    }
+  };
+
+  const handleUndoDelete = () => {
+    // This is a mock undo - in real implementation, you'd restore from database
+    if (deletedCompanyInfo) {
+      console.log('Undoing delete for:', deletedCompanyInfo.name);
+      
+      // Remove from deleted companies set
+      setDeletedCompanies(prev => {
+        const newSet = new Set(prev);
+        newSet.delete(deletedCompanyInfo.id);
+        return newSet;
+      });
+      
+      // Add company back to main list
+      setCompanies(prev => [...prev, deletedCompanyInfo]);
+      
+      setDeletedCompanyInfo(null);
+      setShowUndoNotification(false);
+      // Company restored successfully - no alert needed
+    }
+  };
+
   const filteredCompanies = companies.filter(company => {
     const matchesSearch = company.name.toLowerCase().includes(searchTerm.toLowerCase()) ||
                          company.industry.toLowerCase().includes(searchTerm.toLowerCase());
     const matchesStatus = filterStatus === 'all' || company.status === filterStatus;
-    return matchesSearch && matchesStatus;
+    const isNotDeleted = !deletedCompanies.has(company.id);
+    return matchesSearch && matchesStatus && isNotDeleted;
   });
 
   const getStatusColor = (status: string) => {
@@ -456,11 +558,11 @@ export default function CompaniesPage() {
           {/* Companies Grid */}
           <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-6">
             {filteredCompanies.map((company) => (
-              <Card
+              <div
                 key={company.id}
-                className="p-6 hover:shadow-lg transition-shadow cursor-pointer"
                 onClick={() => handleCompanyClick(company)}
               >
+                <Card className="p-6 hover:shadow-lg transition-shadow cursor-pointer">
                 <div className="flex items-start justify-between mb-4">
                   <div className="flex items-center gap-3">
                     <div className="w-12 h-12 bg-gray-100 rounded-lg flex items-center justify-center">
@@ -510,18 +612,40 @@ export default function CompaniesPage() {
                     Created {new Date(company.createdAt).toLocaleDateString()}
                   </span>
                   <div className="flex gap-2">
-                    <Button variant="ghost" size="sm">
+                    <Button 
+                      variant="ghost" 
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleCompanyClick(company);
+                      }}
+                    >
                       <Eye className="w-4 h-4" />
                     </Button>
-                    <Button variant="ghost" size="sm">
+                    <Button 
+                      variant="ghost" 
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleEditCompany(company);
+                      }}
+                    >
                       <Edit className="w-4 h-4" />
                     </Button>
-                    <Button variant="ghost" size="sm">
+                    <Button 
+                      variant="ghost" 
+                      size="sm"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        handleDeleteCompany(company);
+                      }}
+                    >
                       <Trash2 className="w-4 h-4" />
                     </Button>
                   </div>
                 </div>
               </Card>
+              </div>
             ))}
           </div>
 
@@ -643,6 +767,121 @@ export default function CompaniesPage() {
             </DialogContent>
           </Dialog>
 
+          {/* Edit Company Modal */}
+          <Dialog open={showEditModal} onOpenChange={setShowEditModal}>
+            <DialogContent className="sm:max-w-[600px]">
+              <DialogHeader>
+                <DialogTitle>Edit Company</DialogTitle>
+                <DialogDescription>
+                  Update company information
+                </DialogDescription>
+              </DialogHeader>
+              <div className="grid gap-4 py-4">
+                <div className="grid grid-cols-1 gap-4">
+                  <div>
+                    <label htmlFor="edit-name" className="text-sm font-medium mb-1 block">Company Name</label>
+                    <Input
+                      id="edit-name"
+                      placeholder="Enter company name"
+                      value={editingCompany?.name || ''}
+                      onChange={(e) => editingCompany && setEditingCompany({ ...editingCompany, name: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="edit-industry" className="text-sm font-medium mb-1 block">Industry</label>
+                    <Input
+                      id="edit-industry"
+                      placeholder="Enter industry"
+                      value={editingCompany?.industry || ''}
+                      onChange={(e) => editingCompany && setEditingCompany({ ...editingCompany, industry: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="edit-description" className="text-sm font-medium mb-1 block">Description</label>
+                    <Input
+                      id="edit-description"
+                      placeholder="Enter description"
+                      value={editingCompany?.description || ''}
+                      onChange={(e) => editingCompany && setEditingCompany({ ...editingCompany, description: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="edit-website" className="text-sm font-medium mb-1 block">Website</label>
+                    <Input
+                      id="edit-website"
+                      placeholder="https://example.com"
+                      value={editingCompany?.website || ''}
+                      onChange={(e) => editingCompany && setEditingCompany({ ...editingCompany, website: e.target.value })}
+                    />
+                  </div>
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShowEditModal(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={handleUpdateCompany}>
+                  Update Company
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Delete Confirmation Modal */}
+          <Dialog open={showDeleteConfirm} onOpenChange={setShowDeleteConfirm}>
+            <DialogContent className="sm:max-w-[400px]">
+              <DialogHeader>
+                <DialogTitle>Confirm Delete</DialogTitle>
+                <DialogDescription>
+                  Are you sure you want to delete this company? This action cannot be undone.
+                </DialogDescription>
+              </DialogHeader>
+              <div className="py-4">
+                <p className="text-sm text-gray-600 mb-4">
+                  Company: <strong>{deletingCompany?.name}</strong>
+                </p>
+                <p className="text-xs text-red-600">
+                  This will permanently remove all company data including certifications and users.
+                </p>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShowDeleteConfirm(false)}>
+                  Cancel
+                </Button>
+                <Button 
+                  variant="outline" 
+                  onClick={confirmDeleteCompany}
+                  className="bg-red-600 hover:bg-red-700 text-white"
+                >
+                  Delete Company
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+
+          {/* Undo Notification */}
+          {showUndoNotification && deletedCompanyInfo && (
+            <div className="fixed bottom-4 right-4 bg-blue-600 text-white px-4 py-3 rounded-lg shadow-lg z-50 animate-pulse">
+              <div className="flex items-center gap-3">
+                <div className="w-6 h-6 bg-white rounded-full flex items-center justify-center">
+                  <svg className="w-4 h-4 text-blue-600" fill="none" stroke="currentColor" viewBox="0 0 24 24">
+                    <path strokeLinecap="round" strokeLinejoin="round" strokeWidth={2} d="M3 10h10a8 8 0 018 8v10a8 8 0 01-8 8h-10" />
+                  </svg>
+                </div>
+                <div>
+                  <p className="font-medium">{deletedCompanyInfo.name} restored</p>
+                  <p className="text-sm opacity-90">Click to undo</p>
+                </div>
+                <button
+                  onClick={handleUndoDelete}
+                  className="ml-4 bg-white text-blue-600 px-3 py-1 rounded-md text-sm font-medium hover:bg-blue-50 transition-colors"
+                >
+                  Undo
+                </button>
+              </div>
+            </div>
+          )}
+
           {/* Company Detail Modal */}
           <Dialog open={showCompanyDetail} onOpenChange={setShowCompanyDetail}>
             <DialogContent className="sm:max-w-[700px] max-h-[80vh] overflow-y-auto">
@@ -695,7 +934,14 @@ export default function CompaniesPage() {
                   <div className="border rounded-lg p-4">
                     <div className="flex items-center justify-between mb-3">
                       <h4 className="font-semibold text-gray-900">Certifications</h4>
-                      <Button size="sm" variant="outline">
+                      <Button 
+                        size="sm" 
+                        variant="outline"
+                        onClick={() => {
+                          // TODO: Implement add certification functionality
+                          alert('Add certification functionality coming soon!');
+                        }}
+                      >
                         <Plus className="w-4 h-4 mr-1" />
                         Add Certification
                       </Button>
