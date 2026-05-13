@@ -25,22 +25,22 @@ export class CompaniesController {
   }
 
   @Get()
-  async findAll() {
-    return this.companiesService.findAll();
+  async findAll(@Req() req) {
+    return this.companiesService.findAll(req.user.organizationId);
   }
 
   @Get(':id')
-  async findById(@Param('id') id: string) {
-    return this.companiesService.findById(id);
+  async findById(@Req() req, @Param('id') id: string) {
+    return this.companiesService.findById(id, req.user.organizationId);
   }
 
   @Put(':id')
-  async update(@Param('id') id: string, @Body() data: any) {
-    return this.companiesService.update(id, data);
+  async update(@Req() req, @Param('id') id: string, @Body() data: any) {
+    return this.companiesService.update(id, req.user.organizationId, data);
   }
 
   @Delete(':id')
-  async delete(@Param('id') id: string) {
-    return this.companiesService.delete(id);
+  async delete(@Req() req, @Param('id') id: string) {
+    return this.companiesService.delete(id, req.user.organizationId);
   }
 }

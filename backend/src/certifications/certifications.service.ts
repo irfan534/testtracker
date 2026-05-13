@@ -10,11 +10,12 @@ export class CertificationsService {
 
   async create(organizationId: string, userId: string, data: CreateCertificationDto) {
     try {
+      const { organizationId: _, userId: __, ...rest } = data;
       return this.prisma.certification.create({
         data: {
-          ...data,
-          organizationId,
-          userId,
+          ...rest,
+          organization: { connect: { id: organizationId } },
+          user: { connect: { id: userId } },
           status: 'ACTIVE',
         },
       });
@@ -73,6 +74,12 @@ export class CertificationsService {
   }
 
   async update(id: string, organizationId: string, data: any) {
+    // Security: Verify ownership before update to prevent IDOR
+    const cert = await this.prisma.certification.findFirst({
+      where: { id, organizationId },
+    });
+    if (!cert) return null;
+
     return this.prisma.certification.update({
       where: { id },
       data,
@@ -80,6 +87,12 @@ export class CertificationsService {
   }
 
   async delete(id: string, organizationId: string) {
+    // Security: Verify ownership before delete to prevent IDOR
+    const cert = await this.prisma.certification.findFirst({
+      where: { id, organizationId },
+    });
+    if (!cert) return null;
+
     return this.prisma.certification.update({
       where: { id },
       data: { deletedAt: new Date() },

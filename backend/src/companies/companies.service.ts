@@ -27,10 +27,10 @@ export class CompaniesService {
     return organization;
   }
 
-  async findAll() {
+  async findAll(organizationId: string) {
     try {
       const organizations = await this.prisma.organization.findMany({
-        where: { deletedAt: null },
+        where: { id: organizationId, deletedAt: null },
         include: {
           _count: {
             select: {
@@ -115,10 +115,11 @@ export class CompaniesService {
     }
   }
 
-  async findById(id: string) {
+  async findById(id: string, organizationId: string) {
     try {
+      if (id !== organizationId) return null;
       const organization = await this.prisma.organization.findFirst({
-        where: { id, deletedAt: null },
+        where: { id: organizationId, deletedAt: null },
         include: {
           certifications: {
             include: {
@@ -339,10 +340,11 @@ export class CompaniesService {
     }
   }
 
-  async update(id: string, data: any) {
+  async update(id: string, organizationId: string, data: any) {
     try {
+      if (id !== organizationId) return null;
       return await this.prisma.organization.update({
-        where: { id },
+        where: { id: organizationId },
         data,
       });
     } catch (error) {
@@ -356,10 +358,11 @@ export class CompaniesService {
     }
   }
 
-  async delete(id: string) {
+  async delete(id: string, organizationId: string) {
     try {
+      if (id !== organizationId) return null;
       await this.prisma.organization.update({
-        where: { id },
+        where: { id: organizationId },
         data: { deletedAt: new Date() },
       });
       return { message: 'Company deleted successfully', id };

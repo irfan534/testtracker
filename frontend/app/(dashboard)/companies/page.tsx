@@ -105,7 +105,7 @@ export default function CompaniesPage() {
         router.push('/login');
       } else {
         const isNetworkError = error.message === 'Network Error' || (!error.response && error.request);
-        const configuredApiUrl = apiClient.defaults?.baseURL;
+        const configuredApiUrl = (apiClient as any).defaults?.baseURL;
         const fallbackUrl = typeof window !== 'undefined' ? window.location.origin : 'server';
         const apiUrl = configuredApiUrl || fallbackUrl;
         

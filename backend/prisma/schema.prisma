@@ -185,6 +185,8 @@ model Certification {
   @@index([expiryDate])
   @@index([status])
   @@index([deletedAt])
+  @@index([issuingBody])
+  @@index([certificateType])
 }
 
 enum CertificationStatus {

@@ -4,6 +4,12 @@ export class CreateCertificationDto {
   @IsString()
   name: string;
 
+  @IsString()
+  certificateId: string;
+
+  @IsString()
+  certificateType: string;
+
   @IsDate()
   issueDate: Date;
 

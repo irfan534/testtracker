@@ -27,9 +27,9 @@ export class AuditLogsService {
     return { logs, total };
   }
 
-  async findByUser(userId: string, skip = 0, take = 50) {
+  async findByUser(userId: string, organizationId: string, skip = 0, take = 50) {
     return this.prisma.auditLog.findMany({
-      where: { userId },
+      where: { userId, organizationId },
       skip,
       take,
       orderBy: { createdAt: 'desc' },
