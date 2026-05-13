@@ -12,11 +12,30 @@ export interface User {
   status: string;
   organizationId: string;
   createdAt: string;
+  mfaEnabled?: boolean;
 }
 
 export interface AuthResponse {
   accessToken: string;
   user: User;
+}
+
+export interface TwoFactorAuthResponse {
+  requires2FA: boolean;
+  tempToken?: string;
+  user: {
+    id: string;
+    email: string;
+    firstName: string;
+    lastName: string;
+    mfaEnabled: boolean;
+  };
+}
+
+export interface TwoFactorSetupResponse {
+  qrCodeUrl: string;
+  secret: string;
+  backupCodes: string[];
 }
 
 // Certification types

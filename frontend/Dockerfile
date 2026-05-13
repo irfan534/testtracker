@@ -15,12 +15,14 @@ RUN npm ci --only=production && npm cache clean --force
 # Build stage
 FROM base AS builder
 WORKDIR /app
+
+# Accept build arguments from docker-compose
+ARG NEXT_PUBLIC_API_URL
+ENV NEXT_PUBLIC_API_URL=$NEXT_PUBLIC_API_URL
+
 COPY package*.json ./
-COPY .next/standalone* ./
-COPY .next/static ./
-COPY .next/cache ./
 COPY public ./public
-COPY src ./src
+COPY app ./app
 COPY next.config.js ./
 COPY tailwind.config.js ./
 COPY postcss.config.js ./

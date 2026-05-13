@@ -1,12 +1,12 @@
 import { useQuery, useMutation, useQueryClient } from '@tanstack/react-query';
 import { apiClient } from './api-client';
-import { User, Certification, AuthResponse } from '@/types';
+import { User, Certification, AuthResponse, TwoFactorAuthResponse } from '@/types';
 
 // Auth hooks
 export const useLogin = () => {
   return useMutation({
     mutationFn: (credentials: { email: string; password: string }) =>
-      apiClient.post<AuthResponse>('/auth/login', credentials),
+      apiClient.post<AuthResponse | TwoFactorAuthResponse>('/auth/login', credentials),
   });
 };
 
@@ -25,6 +25,46 @@ export const useLogout = () => {
     onSuccess: () => {
       queryClient.clear();
     },
+  });
+};
+
+// 2FA Hooks
+export const useSetup2FA = () => {
+  return useMutation({
+    mutationFn: () => apiClient.post('/auth/2fa/setup'),
+  });
+};
+
+export const useVerify2FASetup = () => {
+  return useMutation({
+    mutationFn: (data: { code: string }) => apiClient.post('/auth/2fa/verify-setup', data),
+  });
+};
+
+export const useVerify2FALogin = () => {
+  return useMutation({
+    mutationFn: (data: { code: string; tempToken: string; userId: string }) =>
+      apiClient.post('/auth/2fa/verify', data),
+  });
+};
+
+export const useDisable2FA = () => {
+  return useMutation({
+    mutationFn: (data: { code: string }) => apiClient.post('/auth/2fa/disable', data),
+  });
+};
+
+export const useGet2FAStatus = () => {
+  return useQuery({
+    queryKey: ['2fa', 'status'],
+    queryFn: () => apiClient.get('/auth/2fa/status').then((res) => res.data),
+    staleTime: 5 * 60 * 1000,
+  });
+};
+
+export const useRegenerateBackupCodes = () => {
+  return useMutation({
+    mutationFn: (data: { code: string }) => apiClient.post('/auth/2fa/regenerate-backup-codes', data),
   });
 };
 
@@ -121,6 +161,14 @@ export const useUploadFile = () => {
       queryClient.invalidateQueries({ queryKey: ['uploads'] });
       queryClient.invalidateQueries({ queryKey: ['certifications'] });
     },
+  });
+};
+
+// Companies hooks
+export const useCompanies = () => {
+  return useQuery({
+    queryKey: ['companies'],
+    queryFn: () => apiClient.get('/companies').then((res) => res.data),
   });
 };
 

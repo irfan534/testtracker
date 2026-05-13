@@ -1,6 +1,9 @@
 'use client';
 
 import { useState } from 'react';
+
+// Prevent static generation
+export const dynamic = 'force-dynamic';
 import { useRouter } from 'next/navigation';
 import { motion } from 'framer-motion';
 import Link from 'next/link';

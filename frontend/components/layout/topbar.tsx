@@ -1,13 +1,21 @@
 'use client';
 
 import { useState } from 'react';
+import { useRouter } from 'next/navigation';
 import { Menu, Search, Bell, ChevronDown, ChevronUp } from 'lucide-react';
 import { useUIStore } from '@/lib/store';
 import Link from 'next/link';
 
 export default function Topbar() {
   const [open, setOpen] = useState(false);
+  const [searchQuery, setSearchQuery] = useState('');
+  const router = useRouter();
   const toggleSidebar = useUIStore((state) => state.toggleSidebar);
+
+  const handleSearch = (query: string) => {
+    // Navigate to search results page with query parameter
+    router.push(`/search?q=${encodeURIComponent(query)}`);
+  };
 
   return (
     <header className="sticky top-0 z-20 border-b border-slate-200 bg-white/80 backdrop-blur-xl">
@@ -21,7 +29,14 @@ export default function Topbar() {
               <Search className="h-4 w-4" />
               <input
                 type="search"
-                placeholder="Search certifications, frameworks..."
+                placeholder="Search certifications, frameworks, companies..."
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                onKeyDown={(e) => {
+                  if (e.key === 'Enter' && searchQuery.trim()) {
+                    handleSearch(searchQuery.trim());
+                  }
+                }}
                 className="bg-transparent outline-none placeholder:text-slate-400 w-full"
               />
             </div>

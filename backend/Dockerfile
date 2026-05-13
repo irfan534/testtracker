@@ -22,7 +22,7 @@ WORKDIR /app
 COPY package*.json ./
 COPY prisma ./prisma/
 COPY tsconfig.json ./
-COPY .nest-cli ./
+COPY nest-cli.json ./
 COPY src ./src/
 
 # Install all dependencies (including devDependencies for build)

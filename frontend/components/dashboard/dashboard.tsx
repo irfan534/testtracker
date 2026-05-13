@@ -1,7 +1,8 @@
 'use client';
 
 import { motion } from 'framer-motion';
-import { useCertificationMetrics, useFrameworkMetrics, useCertifications, useComplianceReport } from '@/lib/hooks';
+import { useRouter } from 'next/navigation';
+import { useCertificationMetrics, useFrameworkMetrics, useCertifications, useComplianceReport, useCompanies } from '@/lib/hooks';
 import { formatDate } from '@/lib/utils';
 import { BarChart3, Award, CheckCircle, Clock, AlertTriangle, Shield, TrendingUp, Target, Activity, Zap, ArrowRight } from 'lucide-react';
 
@@ -15,9 +16,11 @@ const metricCards = [
 ];
 
 export default function Dashboard() {
+  const router = useRouter();
   const metricsQuery = useCertificationMetrics();
   const frameworkMetricsQuery = useFrameworkMetrics();
   const certificationsQuery = useCertifications();
+  const companiesQuery = useCompanies();
 
   return (
     <div className="space-y-8">
@@ -117,7 +120,7 @@ export default function Dashboard() {
           >
             <BarChart3 className="w-6 h-6 text-blue-600" />
           </motion.div>
-          <div className="text-2xl font-bold text-foreground">{certificationsQuery.data?.certifications?.length || 0}</div>
+          <div className="text-2xl font-bold text-foreground">{metricsQuery.data?.total || 0}</div>
           <div className="text-sm text-muted-foreground">Total Certifications</div>
         </motion.div>
         
@@ -136,7 +139,7 @@ export default function Dashboard() {
           >
             <CheckCircle className="w-6 h-6 text-green-600" />
           </motion.div>
-          <div className="text-2xl font-bold text-foreground">{certificationsQuery.data?.certifications?.filter((cert: any) => cert.status === 'ACTIVE').length || 0}</div>
+          <div className="text-2xl font-bold text-foreground">{metricsQuery.data?.active || 0}</div>
           <div className="text-sm text-muted-foreground">Active</div>
         </motion.div>
         
@@ -155,7 +158,7 @@ export default function Dashboard() {
           >
             <Clock className="w-6 h-6 text-yellow-600" />
           </motion.div>
-          <div className="text-2xl font-bold text-foreground">{certificationsQuery.data?.certifications?.filter((cert: any) => cert.status === 'EXPIRING_SOON').length || 0}</div>
+          <div className="text-2xl font-bold text-foreground">{metricsQuery.data?.expiringSoon || 0}</div>
           <div className="text-sm text-muted-foreground">Expiring Soon</div>
         </motion.div>
         
@@ -174,7 +177,7 @@ export default function Dashboard() {
           >
             <AlertTriangle className="w-6 h-6 text-red-600" />
           </motion.div>
-          <div className="text-2xl font-bold text-foreground">{certificationsQuery.data?.certifications?.filter((cert: any) => cert.status === 'EXPIRED').length || 0}</div>
+          <div className="text-2xl font-bold text-foreground">{metricsQuery.data?.expired || 0}</div>
           <div className="text-sm text-muted-foreground">Expired</div>
         </motion.div>
       </div>
@@ -194,13 +197,20 @@ export default function Dashboard() {
           
           const { icon: Icon, color } = getIconAndColor(metric.key);
           
+          const handleClick = () => {
+            if (metric.key === 'totalCompanies') {
+              router.push('/companies');
+            }
+          };
+
           return (
             <motion.div
               key={metric.key}
               initial={{ opacity: 0, y: 12 }}
               animate={{ opacity: 1, y: 0 }}
               transition={{ delay: index * 0.05 }}
-              className="glass p-6 hover-lift"
+              className={`glass p-6 hover-lift ${metric.key === 'totalCompanies' ? 'cursor-pointer hover:shadow-lg transition-shadow' : ''}`}
+              onClick={handleClick}
             >
               <div className="flex items-center justify-between mb-3">
                 <p className="text-sm font-medium text-muted-foreground">{metric.label}</p>
@@ -209,8 +219,31 @@ export default function Dashboard() {
                 </div>
               </div>
               <p className="text-3xl font-semibold text-foreground">
-                {metricsQuery.isLoading ? '—' : metricsQuery.data?.[metric.key] ?? 0}
+                {(() => {
+                  if (metric.key === 'totalCompanies') {
+                    return companiesQuery.isLoading ? '—' : companiesQuery.data?.companies?.length ?? 0;
+                  }
+                  if (metric.key === 'totalCertifications') {
+                    return metricsQuery.isLoading ? '—' : metricsQuery.data?.total ?? 0;
+                  }
+                  if (metric.key === 'activeCertifications') {
+                    return metricsQuery.isLoading ? '—' : metricsQuery.data?.active ?? 0;
+                  }
+                  if (metric.key === 'expiringSoon') {
+                    return metricsQuery.isLoading ? '—' : metricsQuery.data?.expiringSoon ?? 0;
+                  }
+                  if (metric.key === 'expired') {
+                    return metricsQuery.isLoading ? '—' : metricsQuery.data?.expired ?? 0;
+                  }
+                  return metricsQuery.isLoading ? '—' : metricsQuery.data?.[metric.key] ?? 0;
+                })()}
               </p>
+              {metric.key === 'totalCompanies' && (
+                <p className="text-xs text-blue-600 mt-2 flex items-center gap-1">
+                  Click to view all companies
+                  <ArrowRight className="w-3 h-3" />
+                </p>
+              )}
             </motion.div>
           );
         })}

@@ -4,35 +4,22 @@ import { useState, useEffect } from 'react';
 import Link from 'next/link';
 import { usePathname } from 'next/navigation';
 import { useUIStore } from '@/lib/store';
-import { LayoutDashboard, Award, ShieldCheck, Upload, BarChart3, Calendar, FileText, Settings, User, Bell, LogOut, TrendingUp, Database, Activity, ChevronDown, ChevronRight } from 'lucide-react';
+import { LayoutDashboard, Award, Upload, BarChart3, Calendar, FileText, Settings, User, Bell, LogOut, TrendingUp, Database } from 'lucide-react';
 
 const navItems = [
   { label: 'Dashboard', href: '/dashboard', icon: LayoutDashboard, category: 'main' },
   { label: 'Reports', href: '/reports', icon: BarChart3, category: 'main' },
   { label: 'Import', href: '/uploads', icon: Upload, category: 'main' },
   { label: 'Companies', href: '/companies', icon: Database, category: 'main' },
+  { label: 'Certifications', href: '/certifications', icon: Award, category: 'main' },
   { label: 'Audit Logs', href: '/audit-logs', icon: FileText, category: 'secondary' },
-  { label: 'Notifications', href: '/notifications', icon: Bell, category: 'secondary' },
   { label: 'Settings', href: '/settings', icon: Settings, category: 'secondary' },
   { label: 'Profile', href: '/profile', icon: User, category: 'secondary' },
-];
-
-const complianceItems = [
-  { label: 'Certifications', href: '/certifications', icon: Award },
-  { label: 'Frameworks', href: '/frameworks', icon: ShieldCheck },
 ];
 
 export default function Sidebar() {
   const sidebarOpen = useUIStore((state) => state.sidebarOpen);
   const pathname = usePathname();
-  const [complianceOpen, setComplianceOpen] = useState(false);
-
-  // Auto-open compliance menu when on certifications or frameworks pages
-  useEffect(() => {
-    if (pathname.startsWith('/certifications') || pathname.startsWith('/frameworks')) {
-      setComplianceOpen(true);
-    }
-  }, [pathname]);
 
   return (
     <aside className={`bg-white text-gray-900 transition-all duration-300 ${sidebarOpen ? 'w-80' : 'w-20'} overflow-hidden shadow-lg border-r border-gray-200`}>
@@ -86,57 +73,6 @@ export default function Sidebar() {
                   </Link>
                 );
               })}
-
-              {/* Compliance Menu with Submenu */}
-              <div>
-                <button
-                  onClick={() => setComplianceOpen(!complianceOpen)}
-                  className={`group relative w-full flex items-center justify-between gap-3 rounded-lg px-4 py-3 text-sm font-medium transition-all duration-200 ${
-                    pathname.startsWith('/certifications') || pathname.startsWith('/frameworks')
-                      ? 'bg-black text-white shadow-md'
-                      : 'text-gray-700 hover:bg-gray-100 hover:text-gray-900'
-                  }`}
-                >
-                  <div className="flex items-center gap-3">
-                    <Activity className={`h-5 w-5 ${pathname.startsWith('/certifications') || pathname.startsWith('/frameworks') ? 'text-white' : 'text-gray-500 group-hover:text-gray-700'}`} />
-                    <span className={`${sidebarOpen ? 'inline' : 'hidden'} ${pathname.startsWith('/certifications') || pathname.startsWith('/frameworks') ? 'text-white' : ''}`}>
-                      Compliance
-                    </span>
-                  </div>
-                  {sidebarOpen && (
-                    <span className={`${pathname.startsWith('/certifications') || pathname.startsWith('/frameworks') ? 'text-white' : 'text-gray-500'}`}>
-                      {complianceOpen ? <ChevronDown className="h-4 w-4" /> : <ChevronRight className="h-4 w-4" />}
-                    </span>
-                  )}
-                </button>
-
-                {/* Submenu */}
-                {complianceOpen && sidebarOpen && (
-                  <div className="ml-4 mt-1 space-y-1">
-                    {complianceItems.map((item) => {
-                      const Icon = item.icon;
-                      const isActive = pathname === item.href || pathname.startsWith(item.href + '/');
-
-                      return (
-                        <Link
-                          key={item.href}
-                          href={item.href}
-                          className={`group relative flex items-center gap-3 rounded-lg px-4 py-2 text-sm font-medium transition-all duration-200 ${
-                            isActive
-                              ? 'bg-gray-900 text-white'
-                              : 'text-gray-600 hover:bg-gray-100 hover:text-gray-900'
-                          }`}
-                        >
-                          <Icon className={`h-4 w-4 ${isActive ? 'text-white' : 'text-gray-500 group-hover:text-gray-700'}`} />
-                          <span className={isActive ? 'text-white' : ''}>
-                            {item.label}
-                          </span>
-                        </Link>
-                      );
-                    })}
-                  </div>
-                )}
-              </div>
             </nav>
           </div>
 

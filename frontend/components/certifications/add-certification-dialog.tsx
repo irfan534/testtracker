@@ -9,12 +9,16 @@ import { useCreateCertification } from '@/lib/hooks';
 
 interface CertificationFormData {
   name: string;
-  issueDate: string;
+  certificateId?: string; // Defaulted in handleSubmit
+  certificateType?: string; // Defaulted in handleSubmit
+  issueDate: string; // Made required
   expiryDate: string;
   issuingBody: string;
-  owner?: string;
-  description?: string;
-  logo?: File;
+  renewalReminderDays?: number; // Defaulted in handleSubmit
+  owner?: string; // Defaulted in handleSubmit
+  department?: string; // Defaulted in handleSubmit
+  description?: string; // Defaulted in handleSubmit
+  logoUrl?: string | null; // Renamed from 'logo' to 'logoUrl'
 }
 
 interface AddCertificationDialogProps {
@@ -24,40 +28,63 @@ interface AddCertificationDialogProps {
 
 export default function AddCertificationDialog({ children, onSuccess }: AddCertificationDialogProps) {
   const [open, setOpen] = useState(false);
+  const [error, setError] = useState<string | null>(null);
   const [formData, setFormData] = useState<CertificationFormData>({
     name: '',
     issueDate: '',
     expiryDate: '',
     issuingBody: '',
-    owner: '',
-    description: '',
-    logo: undefined,
+    department: '', // Defaulted in handleSubmit
+    description: '', // Defaulted in handleSubmit
+    logoUrl: null, // Renamed from 'logo' to 'logoUrl'
   });
 
   const createCertification = useCreateCertification();
   const isLoading = createCertification.isPending;
 
-  const handleInputChange = (field: keyof CertificationFormData, value: string | File) => {
-    setFormData(prev => ({ ...prev, [field]: value }));
+  const handleInputChange = (field: keyof CertificationFormData, value: string | number) => {
+    setFormData((prev) => ({ ...prev, [field]: value }));
   };
 
-  const handleSubmit = (e: React.FormEvent) => {
+  const handleFileChange = (e: React.ChangeEvent<HTMLInputElement>) => {
+    const file = e.target.files?.[0];
+    if (file) {
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        setFormData((prev) => ({ ...prev, logoUrl: reader.result as string }));
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault();
+    setError(null);
+
+    if (!formData.name || !formData.issueDate || !formData.expiryDate || !formData.issuingBody) {
+      alert('Please fill in all required fields (marked with *)');
+      return;
+    }
 
     // Calculate validity days
-    const issueDate = new Date(formData.issueDate);
+    const issueDate = formData.issueDate ? new Date(formData.issueDate) : new Date();
     const expiryDate = new Date(formData.expiryDate);
     const validityDays = Math.floor((expiryDate.getTime() - issueDate.getTime()) / (1000 * 60 * 60 * 24));
 
+    // Prepare certification data
     const certificationData = {
       name: formData.name,
-      certificateType: 'Custom',
-      issueDate: formData.issueDate,
-      expiryDate: formData.expiryDate,
+      certificateId: formData.certificateId || `CERT-${Date.now()}`,
+      certificateType: formData.certificateType || 'ISO',
+      issueDate: issueDate.toISOString(),
+      expiryDate: expiryDate.toISOString(),
       validityDays: validityDays,
+      renewalReminderDays: formData.renewalReminderDays || 30,
       issuingBody: formData.issuingBody,
-      owner: formData.owner,
-      description: formData.description,
+      owner: formData.owner || '',
+      department: formData.department || '',
+      description: formData.description || '',
+      logoUrl: formData.logoUrl || null, // Renamed from 'logo' to 'logoUrl'
     };
 
     createCertification.mutate(certificationData, {
@@ -68,16 +95,20 @@ export default function AddCertificationDialog({ children, onSuccess }: AddCerti
           issueDate: '',
           expiryDate: '',
           issuingBody: '',
-          owner: '',
+          department: '',
           description: '',
-          logo: undefined,
+          logoUrl: null, // Renamed from 'logo' to 'logoUrl'
         });
         onSuccess?.();
         alert('Certification added successfully!');
       },
       onError: (error: any) => {
         console.error('Error creating certification:', error);
-        alert(`Failed to add certification: ${error.response?.data?.message || error.message}`);
+        const message = error.message === 'Network Error' 
+          ? 'Network Error: Cannot reach the server. Please ensure the backend API is running on port 3001 and CORS is configured.' 
+          : (error.response?.data?.message || error.message);
+        setError(message);
+        alert(`Failed to add certification: ${message}`);
       },
     });
   };
@@ -87,11 +118,17 @@ export default function AddCertificationDialog({ children, onSuccess }: AddCerti
       <DialogTrigger asChild>
         {children}
       </DialogTrigger>
-      <DialogContent className="sm:max-w-[425px]">
+      <DialogContent className="sm:max-w-[425px] max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>Add New Certification</DialogTitle>
         </DialogHeader>
         <form onSubmit={handleSubmit} className="space-y-4">
+          {error && (
+            <div className="p-3 bg-red-50 border border-red-200 text-red-700 text-sm rounded-lg">
+              {error}
+            </div>
+          )}
+
           <div className="space-y-2">
             <label htmlFor="name" className="text-sm font-medium">
               Certification Name *
@@ -121,13 +158,14 @@ export default function AddCertificationDialog({ children, onSuccess }: AddCerti
           <div className="grid grid-cols-2 gap-4">
             <div className="space-y-2">
               <label htmlFor="issueDate" className="text-sm font-medium">
-                Issue Date *
+                Issue Date
               </label>
               <Input
                 id="issueDate"
                 type="date"
                 value={formData.issueDate}
                 onChange={(e) => handleInputChange('issueDate', e.target.value)}
+                className="text-sm"
                 required
               />
             </div>
@@ -141,53 +179,40 @@ export default function AddCertificationDialog({ children, onSuccess }: AddCerti
                 type="date"
                 value={formData.expiryDate}
                 onChange={(e) => handleInputChange('expiryDate', e.target.value)}
-                required
+                className="text-sm"
               />
             </div>
-          </div>
-
-          <div className="space-y-2">
-            <label htmlFor="owner" className="text-sm font-medium">
-              Owner
-            </label>
-            <Input
-              id="owner"
-              value={formData.owner}
-              onChange={(e) => handleInputChange('owner', e.target.value)}
-              placeholder="e.g., John Doe"
-            />
           </div>
 
           <div className="space-y-2">
             <label htmlFor="description" className="text-sm font-medium">
               Description
             </label>
-            <Input
+            <textarea
               id="description"
               value={formData.description}
               onChange={(e) => handleInputChange('description', e.target.value)}
-              placeholder="Optional description"
+              placeholder="e.g., Annual security certification"
+              className="w-full px-3 py-2 border border-input rounded-md focus:outline-none focus:ring-2 focus:ring-accent bg-card text-sm min-h-[80px]"
             />
           </div>
 
           <div className="space-y-2">
-            <label htmlFor="logo" className="text-sm font-medium">
-              Logo
+            <label htmlFor="logoUrl" className="text-sm font-medium">
+              Certification Logo
             </label>
             <Input
-              id="logo"
+              id="logoUrl"
               type="file"
               accept="image/*"
-              onChange={(e) => {
-                const file = e.target.files?.[0];
-                if (file) {
-                  handleInputChange('logo', file);
-                }
-              }}
+              onChange={handleFileChange}
+              className="text-sm cursor-pointer"
             />
-            <p className="text-xs text-muted-foreground">
-              Upload a logo image (PNG, JPG, etc.)
-            </p>
+            {formData.logoUrl && (
+              <div className="mt-2 relative w-16 h-16 border rounded overflow-hidden">
+                <img src={formData.logoUrl} alt="Logo preview" className="w-full h-full object-cover" />
+              </div>
+            )}
           </div>
 
           <div className="flex justify-end gap-3 pt-4">

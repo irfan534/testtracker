@@ -5,6 +5,7 @@ import { motion } from 'framer-motion';
 import Card from '@/components/ui/card';
 import Button from '@/components/ui/button';
 import Input from '@/components/ui/input';
+import Badge from '@/components/ui/badge';
 import { User, Mail, Edit3, Save, Camera } from 'lucide-react';
 
 interface SimpleProfile {
@@ -16,12 +17,12 @@ interface SimpleProfile {
 }
 
 export default function ProfilePage() {
-  const [profile] = useState<SimpleProfile>({
+  const [profile, setProfile] = useState<SimpleProfile>({
     firstName: 'John',
     lastName: 'Doe',
     email: 'john.doe@company.com',
     role: 'Administrator',
-    department: 'Compliance'
+    department: 'Compliance',
   });
 
   const [editing, setEditing] = useState(false);
@@ -34,7 +35,14 @@ export default function ProfilePage() {
   });
 
   const handleSave = () => {
-    // In a real app, this would save to backend
+    // Update the profile with the edited values
+    setProfile(prev => ({
+      ...prev,
+      firstName: formData.firstName,
+      lastName: formData.lastName,
+      email: formData.email,
+      department: formData.department,
+    }));
     setEditing(false);
   };
 

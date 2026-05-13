@@ -51,6 +51,7 @@ model User {
   emailVerifiedAt   DateTime?
   mfaEnabled        Boolean     @default(false)
   mfaSecret         String?
+  backupCodes       String[]
   lastLoginAt       DateTime?
   lastLoginIp       String?
   lastLoginDevice   String?

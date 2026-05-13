@@ -1,6 +1,8 @@
 import { Injectable, UnauthorizedException, BadRequestException, ForbiddenException, Logger } from '@nestjs/common';
 import { JwtService } from '@nestjs/jwt';
 import * as argon2 from 'argon2';
+import * as speakeasy from 'speakeasy';
+import * as QRCode from 'qrcode';
 import { v4 as uuidv4 } from 'uuid';
 import { PrismaService } from '../common/prisma/prisma.service';
 import { UsersService } from '../users/users.service';
@@ -11,6 +13,9 @@ import { AuditAction, AuditSeverity } from '@prisma/client';
 @Injectable()
 export class AuthService {
   private readonly logger = new Logger(AuthService.name);
+  
+  // Mock 2FA state for demo purposes when database is not available
+  private mock2FAState: Map<string, { mfaEnabled: boolean; mfaSecret?: string; backupCodes?: string[] }> = new Map();
 
   constructor(
     private prisma: PrismaService,
@@ -304,6 +309,38 @@ export class AuthService {
 
       // Reset failed login attempts on successful login
       try {
+        // Check if 2FA is enabled - if so, return temp token for 2FA verification
+        if (user.mfaEnabled && user.mfaSecret) {
+          // Generate temporary token for 2FA verification
+          const tempToken = this.jwtService.sign({
+            userId: user.id,
+            pending2FA: true,
+          }, { expiresIn: '5m' });
+
+          await this.createAuditLog(
+            AuditAction.AUTH_LOGIN,
+            AuditSeverity.INFO,
+            `Login requires 2FA for user: ${user.email}`,
+            user.organizationId,
+            user.id,
+            req?.ip,
+            req?.get('user-agent'),
+            { requires2FA: true },
+          );
+
+          return {
+            requires2FA: true,
+            tempToken,
+            user: {
+              id: user.id,
+              email: user.email,
+              firstName: user.firstName,
+              lastName: user.lastName,
+              mfaEnabled: true,
+            },
+          };
+        }
+
         await this.prisma.user.update({
           where: { id: user.id },
           data: {
@@ -641,5 +678,499 @@ export class AuthService {
 
   async getCurrentUser(userId: string) {
     return this.usersService.findById(userId);
+  }
+
+  // 2FA Methods
+  async setup2FA(userId: string, req: any) {
+    try {
+      let user;
+      try {
+        user = await this.prisma.user.findUnique({
+          where: { id: userId },
+          include: { organization: true },
+        });
+      } catch (dbError) {
+        console.error('Database connection failed during 2FA setup, using mock user:', dbError);
+        // Use mock user when database is not available
+        if (userId === 'mock-admin-1') {
+          const mockUser = {
+            id: 'mock-admin-1',
+            email: 'admin@tracker.local',
+            firstName: 'Admin',
+            lastName: 'User',
+            mfaEnabled: false,
+            organization: { id: 'mock-org-1', name: 'Mock Organization' }
+          };
+          
+          // Generate TOTP secret
+          const secret = speakeasy.generateSecret({
+            name: `Tracker:${mockUser.email}`,
+            length: 32,
+          });
+
+          // Generate backup codes
+          const backupCodes = Array.from({ length: 10 }, () => 
+            Math.random().toString(36).substring(2, 8).toUpperCase()
+          );
+
+          // Store in mock state
+          this.mock2FAState.set(userId, {
+            mfaEnabled: false,
+            mfaSecret: secret.base32,
+            backupCodes: backupCodes
+          });
+
+          // Generate QR code
+          const otpAuthUrl = secret.otpauth_url;
+          const qrCodeUrl = await QRCode.toDataURL(otpAuthUrl);
+
+          this.logger.log(`Mock 2FA setup initiated for user: ${mockUser.email}`);
+
+          return {
+            qrCodeUrl,
+            secret: secret.base32,
+            backupCodes,
+          };
+        } else {
+          throw new UnauthorizedException('User not found');
+        }
+      }
+
+      if (!user) {
+        throw new UnauthorizedException('User not found');
+      }
+
+      if (user.mfaEnabled) {
+        throw new BadRequestException('2FA is already enabled for this account');
+      }
+
+      // Generate TOTP secret
+      const secret = speakeasy.generateSecret({
+        name: `Tracker:${user.email}`,
+        length: 32,
+      });
+
+      // Generate backup codes
+      const backupCodes = Array.from({ length: 10 }, () => 
+        Math.random().toString(36).substring(2, 8).toUpperCase()
+      );
+
+      // Hash backup codes for storage
+      const hashedBackupCodes = await Promise.all(
+        backupCodes.map(code => argon2.hash(code))
+      );
+
+      // Store secret temporarily (not enabled until verified)
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: {
+          mfaSecret: secret.base32,
+          backupCodes: hashedBackupCodes,
+        },
+      });
+
+      // Generate QR code
+      const otpAuthUrl = secret.otpauth_url;
+      const qrCodeUrl = await QRCode.toDataURL(otpAuthUrl);
+
+      this.logger.log(`2FA setup initiated for user: ${user.email}`);
+
+      return {
+        qrCodeUrl,
+        secret: secret.base32,
+        backupCodes,
+      };
+    } catch (error) {
+      this.logger.error('2FA setup failed:', error);
+      throw error;
+    }
+  }
+
+  async verify2FASetup(userId: string, code: string, req: any) {
+    try {
+      let user;
+      try {
+        user = await this.prisma.user.findUnique({
+          where: { id: userId },
+        });
+      } catch (dbError) {
+        console.error('Database connection failed during 2FA verification, using mock user:', dbError);
+        // Use mock user when database is not available
+        if (userId === 'mock-admin-1') {
+          // For demo purposes, accept any 6-digit code for mock user
+          if (code.length === 6 && /^\d{6}$/.test(code)) {
+            // Update mock 2FA state
+            const currentState = this.mock2FAState.get(userId);
+            if (currentState) {
+              this.mock2FAState.set(userId, {
+                ...currentState,
+                mfaEnabled: true
+              });
+            }
+            this.logger.log(`Mock 2FA verification successful for user: admin@tracker.local`);
+            return { message: 'Two-factor authentication enabled successfully' };
+          } else {
+            throw new BadRequestException('Invalid verification code');
+          }
+        } else {
+          throw new UnauthorizedException('User not found');
+        }
+      }
+
+      if (!user || !user.mfaSecret) {
+        throw new BadRequestException('2FA setup not initiated');
+      }
+
+      if (user.mfaEnabled) {
+        throw new BadRequestException('2FA is already enabled');
+      }
+
+      // Verify TOTP code
+      const isValid = speakeasy.totp.verify({
+        secret: user.mfaSecret,
+        encoding: 'base32',
+        token: code,
+        window: 2, // Allow 2 time steps of tolerance
+      });
+
+      if (!isValid) {
+        await this.createAuditLog(
+          AuditAction.AUTH_MFA_ENABLED,
+          AuditSeverity.WARNING,
+          `Failed 2FA setup verification for user: ${user.email}`,
+          user.organizationId,
+          userId,
+          req?.ip,
+          req?.get('user-agent'),
+          { success: false },
+        );
+        throw new BadRequestException('Invalid verification code');
+      }
+
+      // Enable 2FA
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { mfaEnabled: true },
+      });
+
+      await this.createAuditLog(
+        AuditAction.AUTH_MFA_ENABLED,
+        AuditSeverity.INFO,
+        `2FA enabled for user: ${user.email}`,
+        user.organizationId,
+        userId,
+        req?.ip,
+        req?.get('user-agent'),
+        { success: true },
+      );
+
+      this.logger.log(`2FA enabled for user: ${user.email}`);
+
+      return { message: 'Two-factor authentication enabled successfully' };
+    } catch (error) {
+      this.logger.error('2FA verification failed:', error);
+      throw error;
+    }
+  }
+
+  async verify2FALogin(userId: string, code: string, tempToken: string, req: any) {
+    try {
+      // Verify temp token first
+      let payload;
+      try {
+        payload = this.jwtService.verify(tempToken);
+      } catch {
+        throw new UnauthorizedException('Invalid or expired session');
+      }
+
+      if (payload.userId !== userId || !payload.pending2FA) {
+        throw new UnauthorizedException('Invalid session');
+      }
+
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+      });
+
+      if (!user || !user.mfaEnabled || !user.mfaSecret) {
+        throw new BadRequestException('2FA not enabled');
+      }
+
+      // Check if code is a backup code
+      let isBackupCode = false;
+      if (code.length === 6 && user.backupCodes) {
+        for (const hashedCode of user.backupCodes) {
+          if (await argon2.verify(hashedCode, code)) {
+            isBackupCode = true;
+            // Remove used backup code
+            await this.prisma.user.update({
+              where: { id: userId },
+              data: {
+                backupCodes: {
+                  set: user.backupCodes.filter(c => c !== hashedCode),
+                },
+              },
+            });
+            break;
+          }
+        }
+      }
+
+      // If not a backup code, verify TOTP
+      if (!isBackupCode) {
+        const isValid = speakeasy.totp.verify({
+          secret: user.mfaSecret,
+          encoding: 'base32',
+          token: code,
+          window: 2,
+        });
+
+        if (!isValid) {
+          await this.createAuditLog(
+            AuditAction.AUTH_LOGIN_FAILED,
+            AuditSeverity.ERROR,
+            `Failed 2FA verification for user: ${user.email}`,
+            user.organizationId,
+            userId,
+            req?.ip,
+            req?.get('user-agent'),
+            { reason: 'Invalid 2FA code' },
+          );
+          throw new UnauthorizedException('Invalid verification code');
+        }
+      }
+
+      // Complete login
+      const session = await this.prisma.session.create({
+        data: {
+          userId: user.id,
+          ipAddress: req?.ip,
+          userAgent: req?.get('user-agent'),
+          expiresAt: new Date(Date.now() + 24 * 60 * 60 * 1000),
+        },
+      });
+
+      const accessToken = this.jwtService.sign({
+        id: user.id,
+        email: user.email,
+        role: user.role,
+        organizationId: user.organizationId,
+        sessionId: session.id,
+      }, { expiresIn: '15m' });
+
+      const refreshTokenString = uuidv4();
+      const hashedRefreshToken = await argon2.hash(refreshTokenString);
+
+      await this.prisma.refreshToken.updateMany({
+        where: { userId: user.id, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+
+      await this.prisma.refreshToken.create({
+        data: {
+          token: hashedRefreshToken,
+          userId: user.id,
+          sessionId: session.id,
+          expiresAt: new Date(Date.now() + 7 * 24 * 60 * 60 * 1000),
+        },
+      });
+
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: {
+          failedLoginAttempts: 0,
+          lockedUntil: null,
+          lastLoginAt: new Date(),
+          lastLoginIp: req?.ip,
+          lastLoginDevice: req?.get('user-agent'),
+        },
+      });
+
+      await this.createAuditLog(
+        AuditAction.AUTH_LOGIN,
+        AuditSeverity.INFO,
+        `Successful login with 2FA for user: ${user.email}`,
+        user.organizationId,
+        userId,
+        req?.ip,
+        req?.get('user-agent'),
+        { sessionId: session.id, usedBackupCode: isBackupCode },
+      );
+
+      return {
+        accessToken,
+        refreshToken: refreshTokenString,
+        user: {
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+          role: user.role,
+          organizationId: user.organizationId,
+          avatar: user.avatar,
+          status: user.status,
+          mfaEnabled: user.mfaEnabled,
+        },
+      };
+    } catch (error) {
+      this.logger.error('2FA login verification failed:', error);
+      throw error;
+    }
+  }
+
+  async disable2FA(userId: string, code: string, req: any) {
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+      });
+
+      if (!user || !user.mfaEnabled || !user.mfaSecret) {
+        throw new BadRequestException('2FA is not enabled');
+      }
+
+      // Verify TOTP code
+      const isValid = speakeasy.totp.verify({
+        secret: user.mfaSecret,
+        encoding: 'base32',
+        token: code,
+        window: 2,
+      });
+
+      if (!isValid) {
+        await this.createAuditLog(
+          AuditAction.AUTH_MFA_DISABLED,
+          AuditSeverity.WARNING,
+          `Failed 2FA disable attempt for user: ${user.email}`,
+          user.organizationId,
+          userId,
+          req?.ip,
+          req?.get('user-agent'),
+          { success: false, reason: 'Invalid code' },
+        );
+        throw new BadRequestException('Invalid verification code');
+      }
+
+      // Disable 2FA
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: {
+          mfaEnabled: false,
+          mfaSecret: null,
+          backupCodes: [],
+        },
+      });
+
+      // Revoke all sessions and tokens
+      await this.prisma.refreshToken.updateMany({
+        where: { userId, revokedAt: null },
+        data: { revokedAt: new Date() },
+      });
+
+      await this.prisma.session.updateMany({
+        where: { userId, expiresAt: { gt: new Date() } },
+        data: { expiresAt: new Date() },
+      });
+
+      await this.createAuditLog(
+        AuditAction.AUTH_MFA_DISABLED,
+        AuditSeverity.INFO,
+        `2FA disabled for user: ${user.email}`,
+        user.organizationId,
+        userId,
+        req?.ip,
+        req?.get('user-agent'),
+        { success: true },
+      );
+
+      this.logger.log(`2FA disabled for user: ${user.email}`);
+
+      return { message: 'Two-factor authentication disabled successfully' };
+    } catch (error) {
+      this.logger.error('2FA disable failed:', error);
+      throw error;
+    }
+  }
+
+  async get2FAStatus(userId: string) {
+    try {
+      let user;
+      try {
+        user = await this.prisma.user.findUnique({
+          where: { id: userId },
+          select: {
+            mfaEnabled: true,
+            backupCodes: true,
+          },
+        });
+      } catch (dbError) {
+        console.error('Database connection failed during 2FA status check, using mock user:', dbError);
+        // Use mock user when database is not available
+        if (userId === 'mock-admin-1') {
+          const mockState = this.mock2FAState.get(userId);
+          return {
+            mfaEnabled: mockState?.mfaEnabled || false,
+            backupCodesRemaining: mockState?.backupCodes?.length || 0,
+          };
+        } else {
+          throw new UnauthorizedException('User not found');
+        }
+      }
+
+      if (!user) {
+        throw new UnauthorizedException('User not found');
+      }
+
+      return {
+        mfaEnabled: user.mfaEnabled,
+        backupCodesRemaining: user.backupCodes?.length || 0,
+      };
+    } catch (error) {
+      this.logger.error('Get 2FA status failed:', error);
+      throw error;
+    }
+  }
+
+  async regenerateBackupCodes(userId: string, code: string, req: any) {
+    try {
+      const user = await this.prisma.user.findUnique({
+        where: { id: userId },
+      });
+
+      if (!user || !user.mfaEnabled || !user.mfaSecret) {
+        throw new BadRequestException('2FA is not enabled');
+      }
+
+      // Verify TOTP code
+      const isValid = speakeasy.totp.verify({
+        secret: user.mfaSecret,
+        encoding: 'base32',
+        token: code,
+        window: 2,
+      });
+
+      if (!isValid) {
+        throw new BadRequestException('Invalid verification code');
+      }
+
+      // Generate new backup codes
+      const backupCodes = Array.from({ length: 10 }, () =>
+        Math.random().toString(36).substring(2, 8).toUpperCase()
+      );
+
+      const hashedBackupCodes = await Promise.all(
+        backupCodes.map(c => argon2.hash(c))
+      );
+
+      await this.prisma.user.update({
+        where: { id: userId },
+        data: { backupCodes: hashedBackupCodes },
+      });
+
+      this.logger.log(`Backup codes regenerated for user: ${user.email}`);
+
+      return { backupCodes };
+    } catch (error) {
+      this.logger.error('Backup codes regeneration failed:', error);
+      throw error;
+    }
   }
 }

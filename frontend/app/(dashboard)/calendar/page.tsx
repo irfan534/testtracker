@@ -85,14 +85,14 @@ export default function CalendarPage() {
   };
 
   const getEventColor = (type: string, priority: string) => {
-    const priorityColors = {
+    const priorityColors: Record<string, string> = {
       critical: 'bg-red-100 text-red-700 border-red-200',
       high: 'bg-orange-100 text-orange-700 border-orange-200',
       medium: 'bg-yellow-100 text-yellow-700 border-yellow-200',
       low: 'bg-blue-100 text-blue-700 border-blue-200',
     };
 
-    const typeColors = {
+    const typeColors: Record<string, string> = {
       certification_expiry: 'bg-red-50 text-red-600 border-red-200',
       renewal_due: 'bg-orange-50 text-orange-600 border-orange-200',
       audit: 'bg-green-50 text-green-600 border-green-200',

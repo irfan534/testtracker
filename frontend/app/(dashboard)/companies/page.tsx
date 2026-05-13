@@ -16,7 +16,7 @@ import {
   DialogHeader,
   DialogTitle,
 } from '@/components/ui/dialog';
-import { Database, Search, Plus, Building2, Users, Calendar, Mail, Phone, Edit, Trash2, Eye, X, TrendingUp, Globe, Award, Target, Zap, ArrowRight, Activity, CheckCircle, AlertCircle } from 'lucide-react';
+import { Database, Search, Plus, Building2, Users, Calendar, Mail, Phone, Edit, Trash2, Eye, X, TrendingUp, Globe, Award, Target, Zap, ArrowRight, Activity, CheckCircle, AlertCircle, Upload, Image as ImageIcon } from 'lucide-react';
 
 interface Company {
   id: string;
@@ -33,6 +33,7 @@ interface Company {
   userCount: number;
   certificationCount: number;
   certifications?: any[];
+  logo?: string;
 }
 
 export default function CompaniesPage() {
@@ -41,18 +42,20 @@ export default function CompaniesPage() {
   const [searchTerm, setSearchTerm] = useState('');
   const [filterStatus, setFilterStatus] = useState('all');
   const [loading, setLoading] = useState(true);
+  const [isDetailLoading, setIsDetailLoading] = useState(false);
   const [fetchError, setFetchError] = useState(false);
+  const [isSubmitting, setIsSubmitting] = useState(false);
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const [showAddModal, setShowAddModal] = useState(false);
   const [formData, setFormData] = useState({
     name: '',
     industry: '',
     description: '',
     website: '',
-    certificateName: '',
     region: '',
-    selectedCertifications: [] as string[],
+    logo: null as string | null,
   });
-  const [availableCertifications, setAvailableCertifications] = useState<any[]>([]);
+  const [logoPreview, setLogoPreview] = useState<string | null>(null);
   const [selectedCompany, setSelectedCompany] = useState<Company | null>(null);
   const [showCompanyDetail, setShowCompanyDetail] = useState(false);
   const [showEditModal, setShowEditModal] = useState(false);
@@ -62,6 +65,23 @@ export default function CompaniesPage() {
   const [showUndoNotification, setShowUndoNotification] = useState(false);
   const [deletedCompanyInfo, setDeletedCompanyInfo] = useState<Company | null>(null);
   const [deletedCompanies, setDeletedCompanies] = useState<Set<string>>(new Set());
+  
+  const [actionError, setActionError] = useState<string | null>(null);
+  // Add certification modal states
+  const [showAddCertificationModal, setShowAddCertificationModal] = useState(false);
+  const [certificationFormData, setCertificationFormData] = useState({
+    name: '',
+    certificateId: '',
+    certificateType: '',
+    issueDate: '',
+    expiryDate: '',
+    validityDays: 365,
+    issuingBody: '',
+    owner: '',
+    department: '',
+    description: '',
+    renewalReminderDays: 30,
+  });
 
   useEffect(() => {
     const token = Cookies.get('accessToken');
@@ -70,32 +90,151 @@ export default function CompaniesPage() {
       return;
     }
     fetchCompanies();
-    fetchCertifications();
   }, []);
 
   const fetchCompanies = async () => {
     try {
       setFetchError(false);
+      setErrorMessage(null);
+      console.log('Attempting to fetch companies...');
       const response = await apiClient.get('/companies');
       setCompanies(response.data.companies || []);
     } catch (error: any) {
-      console.error('Failed to fetch companies:', error);
+      console.error('Company Fetch Error:', error);
       if (error.response?.status === 401) {
         router.push('/login');
       } else {
+        const isNetworkError = error.message === 'Network Error' || (!error.response && error.request);
+        const configuredApiUrl = apiClient.defaults?.baseURL;
+        const fallbackUrl = typeof window !== 'undefined' ? window.location.origin : 'server';
+        const apiUrl = configuredApiUrl || fallbackUrl;
+        
+        console.error('Companies fetch failed:', { 
+          message: error.message, 
+          url: configuredApiUrl ? `${configuredApiUrl}/companies` : 'API URL NOT CONFIGURED',
+          isNetworkError 
+        });
+
         setFetchError(true);
+        const message = !configuredApiUrl 
+          ? "Configuration Error: NEXT_PUBLIC_API_URL is not defined. The frontend doesn't know where the backend is."
+          : isNetworkError 
+          ? `Network Error: Cannot reach the server at ${apiUrl}. Please verify the backend container is running and CORS is configured correctly.` 
+          : (error.response?.data?.message || error.message || 'An unexpected error occurred');
+        setErrorMessage(message);
       }
     } finally {
       setLoading(false);
     }
   };
 
-  const fetchCertifications = async () => {
+  const handleLogoUpload = (event: React.ChangeEvent<HTMLInputElement>) => {
+    const file = event.target.files?.[0];
+    if (file) {
+      // Check if it's an image file
+      if (!file.type.startsWith('image/')) {
+        alert('Please select an image file');
+        return;
+      }
+
+      // Check file size (max 5MB)
+      if (file.size > 5 * 1024 * 1024) {
+        alert('Image size should be less than 5MB');
+        return;
+      }
+
+      const reader = new FileReader();
+      reader.onloadend = () => {
+        const result = reader.result as string;
+        setLogoPreview(result);
+        setFormData({ ...formData, logo: result });
+      };
+      reader.readAsDataURL(file);
+    }
+  };
+
+  const handleRemoveLogo = () => {
+    setLogoPreview(null);
+    setFormData({ ...formData, logo: null });
+  };
+
+  const handleAddCertification = async () => {
+    if (!certificationFormData.name || !certificationFormData.certificateId || 
+        !certificationFormData.certificateType || !certificationFormData.issueDate || 
+        !certificationFormData.expiryDate || !certificationFormData.issuingBody) {
+      alert('Please fill in all required fields');
+      return;
+    }
+
     try {
-      const response = await apiClient.get('/certifications');
-      setAvailableCertifications(response.data.certifications || []);
+      // Debug: Log form data
+      console.log('Form data being sent:', certificationFormData);
+      
+      // Send certification data to backend
+      const certificationData = {
+        name: certificationFormData.name,
+        certificateId: certificationFormData.certificateId,
+        certificateType: certificationFormData.certificateType,
+        issueDate: new Date(certificationFormData.issueDate),
+        expiryDate: new Date(certificationFormData.expiryDate),
+        validityDays: certificationFormData.validityDays,
+        renewalReminderDays: certificationFormData.renewalReminderDays,
+        issuingBody: certificationFormData.issuingBody,
+        owner: certificationFormData.owner,
+        department: certificationFormData.department,
+        description: certificationFormData.description,
+      };
+
+      // Debug: Log data being sent to API
+      console.log('Data being sent to API:', JSON.stringify(certificationData, null, 2));
+      console.log('certificateId type:', typeof certificationData.certificateId);
+      console.log('certificateId value:', certificationData.certificateId);
+
+      const response = await apiClient.post('/certifications', certificationData);
+      console.log('Certification added successfully', response.data);
+
+      setShowAddCertificationModal(false);
+      setCertificationFormData({
+        name: '',
+        certificateId: '',
+        certificateType: '',
+        issueDate: '',
+        expiryDate: '',
+        validityDays: 365,
+        issuingBody: '',
+        owner: '',
+        department: '',
+        description: '',
+        renewalReminderDays: 30,
+      });
+
+      // Update local state to show the new certification
+      if (selectedCompany) {
+        const updatedCompany = {
+          ...selectedCompany,
+          certifications: [...(selectedCompany.certifications || []), response.data],
+          certificationCount: (selectedCompany.certificationCount || 0) + 1
+        };
+        setSelectedCompany(updatedCompany);
+      }
+
+      alert('Certification added successfully!');
     } catch (error: any) {
-      console.error('Failed to fetch certifications:', error);
+      console.error('Failed to add certification:', error);
+      console.error('Error response:', error.response);
+      console.error('Error data:', error.response?.data);
+      console.error('Error status:', error.response?.status);
+      
+      let errorMessage = 'Failed to add certification';
+      if (error.response?.data?.message) {
+        errorMessage = error.response.data.message;
+      } else if (error.response?.data?.error) {
+        errorMessage = error.response.data.error;
+      } else if (error.message) {
+        errorMessage = error.message;
+      }
+      
+      alert(errorMessage);
     }
   };
 
@@ -107,6 +246,8 @@ export default function CompaniesPage() {
       return;
     }
 
+    setIsSubmitting(true);
+    setActionError(null);
     try {
       console.log('Sending JSON request');
       const response = await apiClient.post('/companies', {
@@ -114,9 +255,9 @@ export default function CompaniesPage() {
         industry: formData.industry,
         description: formData.description,
         website: formData.website,
-        certificateName: formData.certificateName,
+        
         region: formData.region,
-        certificationIds: formData.selectedCertifications,
+        logo: formData.logo,
       });
 
       console.log('Company added successfully', response.data);
@@ -127,31 +268,23 @@ export default function CompaniesPage() {
         industry: '',
         description: '',
         website: '',
-        certificateName: '',
+        
         region: '',
-        selectedCertifications: [],
+        logo: null,
       });
+      setLogoPreview(null);
       fetchCompanies(); // Refresh the list
-      alert('Company added successfully!');
     } catch (error: any) {
       console.error('Failed to add company:', error);
-      if (error.response) {
-        console.error('Error response:', error.response.data);
-        alert(`Failed to add company: ${error.response.data.message || error.message}`);
-      } else {
-        alert(`Failed to add company: ${error.message}`);
-      }
+      const message = error.response?.data?.message || error.message || 'Failed to add company';
+      setActionError(message);
+    } finally {
+      setIsSubmitting(false);
     }
   };
 
-  const handleCompanyClick = async (company: Company) => {
-    try {
-      const response = await apiClient.get(`/companies/${company.id}`);
-      setSelectedCompany(response.data);
-      setShowCompanyDetail(true);
-    } catch (error) {
-      console.error('Failed to fetch company details:', error);
-    }
+  const handleCompanyClick = (company: Company) => {
+    router.push(`/companies/${company.id}`);
   };
 
   const handleEditCompany = (company: Company) => {
@@ -163,6 +296,7 @@ export default function CompaniesPage() {
     if (!editingCompany) return;
     
     try {
+      setActionError(null);
       const response = await apiClient.put(`/companies/${editingCompany.id}`, {
         name: editingCompany.name,
         industry: editingCompany.industry,
@@ -170,18 +304,12 @@ export default function CompaniesPage() {
         website: editingCompany.website,
       });
 
-      console.log('Company updated successfully:', response.data);
       setShowEditModal(false);
       setEditingCompany(null);
       fetchCompanies(); // Refresh the list
-      alert('Company updated successfully!');
     } catch (error: any) {
-      console.error('Failed to update company:', error);
-      if (error.response) {
-        alert(`Failed to update company: ${error.response.data.message || error.message}`);
-      } else {
-        alert(`Failed to update company: ${error.message}`);
-      }
+      const message = error.response?.data?.message || error.message || 'Failed to update company';
+      setActionError(message);
     }
   };
 
@@ -360,7 +488,7 @@ export default function CompaniesPage() {
             <AlertCircle className="w-8 h-8 text-red-600" />
           </div>
           <h2 className="text-xl font-semibold text-gray-900 mb-2">Failed to Load Companies</h2>
-          <p className="text-gray-600 mb-6">Unable to fetch company data. Please try again.</p>
+          <p className="text-gray-600 mb-6">{errorMessage || 'Unable to fetch company data. Please try again.'}</p>
           <Button
             onClick={() => {
               setLoading(true);
@@ -617,7 +745,7 @@ export default function CompaniesPage() {
                       size="sm"
                       onClick={(e) => {
                         e.stopPropagation();
-                        handleCompanyClick(company);
+                        router.push(`/companies/${company.id}`);
                       }}
                     >
                       <Eye className="w-4 h-4" />
@@ -656,16 +784,23 @@ export default function CompaniesPage() {
               <p className="text-gray-600">Get started by adding your first company</p>
             </div>
           )}
+        </motion.div>
 
-          {/* Add Company Modal */}
-          <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
-            <DialogContent className="sm:max-w-[600px]">
+        {/* Add Company Modal */}
+        <Dialog open={showAddModal} onOpenChange={setShowAddModal}>
+            <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Add New Company</DialogTitle>
                 <DialogDescription>
                   Create a new company organization to track compliance data
                 </DialogDescription>
               </DialogHeader>
+              {actionError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-700 text-sm">
+                  <AlertCircle className="w-4 h-4" />
+                  {actionError}
+                </div>
+              )}
               <div className="grid gap-4 py-4">
                 <div className="grid grid-cols-1 gap-4">
                   <div>
@@ -676,6 +811,53 @@ export default function CompaniesPage() {
                       value={formData.name}
                       onChange={(e) => setFormData({ ...formData, name: e.target.value })}
                     />
+                  </div>
+                  <div>
+                    <label className="text-sm font-medium mb-1 block">Company Logo</label>
+                    <div className="flex items-center gap-4">
+                      {logoPreview ? (
+                        <div className="relative">
+                          <img
+                            src={logoPreview}
+                            alt="Company logo preview"
+                            className="w-20 h-20 object-cover rounded-lg border border-gray-200"
+                          />
+                          <button
+                            type="button"
+                            onClick={handleRemoveLogo}
+                            className="absolute -top-2 -right-2 bg-red-500 text-white rounded-full p-1 hover:bg-red-600"
+                          >
+                            <X className="w-3 h-3" />
+                          </button>
+                        </div>
+                      ) : (
+                        <div className="w-20 h-20 border-2 border-dashed border-gray-300 rounded-lg flex items-center justify-center">
+                          <ImageIcon className="w-8 h-8 text-gray-400" />
+                        </div>
+                      )}
+                      <div className="flex-1">
+                        <input
+                          type="file"
+                          id="logo"
+                          accept="image/*"
+                          onChange={handleLogoUpload}
+                          className="hidden"
+                        />
+                        <Button
+                          type="button"
+                          variant="outline"
+                          size="sm"
+                          onClick={() => document.getElementById('logo')?.click()}
+                          className="w-full"
+                        >
+                          <Upload className="w-4 h-4 mr-2" />
+                          {logoPreview ? 'Change Logo' : 'Upload Logo'}
+                        </Button>
+                        <p className="text-xs text-gray-500 mt-1">
+                          PNG, JPG, GIF up to 5MB
+                        </p>
+                      </div>
+                    </div>
                   </div>
                   <div>
                     <label htmlFor="industry" className="text-sm font-medium mb-1 block">Industry</label>
@@ -705,15 +887,6 @@ export default function CompaniesPage() {
                     />
                   </div>
                   <div>
-                    <label htmlFor="certificateName" className="text-sm font-medium mb-1 block">Certificate Name</label>
-                    <Input
-                      id="certificateName"
-                      placeholder="Enter certificate name"
-                      value={formData.certificateName}
-                      onChange={(e) => setFormData({ ...formData, certificateName: e.target.value })}
-                    />
-                  </div>
-                  <div>
                     <label htmlFor="region" className="text-sm font-medium mb-1 block">Region</label>
                     <Input
                       id="region"
@@ -722,46 +895,14 @@ export default function CompaniesPage() {
                       onChange={(e) => setFormData({ ...formData, region: e.target.value })}
                     />
                   </div>
-                  <div>
-                    <label className="text-sm font-medium mb-1 block">Select Certifications</label>
-                    <div className="border rounded-lg p-3 max-h-40 overflow-y-auto">
-                      {availableCertifications.length === 0 ? (
-                        <p className="text-sm text-gray-500">No certifications available. Create certifications first.</p>
-                      ) : (
-                        availableCertifications.map((cert) => (
-                          <label key={cert.id} className="flex items-center gap-2 py-1 cursor-pointer">
-                            <input
-                              type="checkbox"
-                              checked={formData.selectedCertifications.includes(cert.id)}
-                              onChange={(e) => {
-                                if (e.target.checked) {
-                                  setFormData({
-                                    ...formData,
-                                    selectedCertifications: [...formData.selectedCertifications, cert.id],
-                                  });
-                                } else {
-                                  setFormData({
-                                    ...formData,
-                                    selectedCertifications: formData.selectedCertifications.filter(id => id !== cert.id),
-                                  });
-                                }
-                              }}
-                              className="rounded border-gray-300"
-                            />
-                            <span className="text-sm">{cert.name}</span>
-                          </label>
-                        ))
-                      )}
-                    </div>
-                  </div>
                 </div>
               </div>
               <DialogFooter>
-                <Button variant="outline" onClick={() => setShowAddModal(false)}>
+                <Button variant="outline" onClick={() => setShowAddModal(false)} disabled={isSubmitting}>
                   Cancel
                 </Button>
-                <Button onClick={handleAddCompany}>
-                  Add Company
+                <Button onClick={handleAddCompany} disabled={isSubmitting}>
+                  {isSubmitting ? 'Adding...' : 'Add Company'}
                 </Button>
               </DialogFooter>
             </DialogContent>
@@ -776,6 +917,12 @@ export default function CompaniesPage() {
                   Update company information
                 </DialogDescription>
               </DialogHeader>
+              {actionError && (
+                <div className="p-3 bg-red-50 border border-red-200 rounded-lg flex items-center gap-2 text-red-700 text-sm">
+                  <AlertCircle className="w-4 h-4" />
+                  {actionError}
+                </div>
+              )}
               <div className="grid gap-4 py-4">
                 <div className="grid grid-cols-1 gap-4">
                   <div>
@@ -884,182 +1031,324 @@ export default function CompaniesPage() {
 
           {/* Company Detail Modal */}
           <Dialog open={showCompanyDetail} onOpenChange={setShowCompanyDetail}>
-            <DialogContent className="sm:max-w-[700px] max-h-[80vh] overflow-y-auto">
+            <DialogContent className="sm:max-w-[900px] max-h-[90vh] overflow-y-auto">
               <DialogHeader>
                 <DialogTitle>Company Details</DialogTitle>
                 <DialogDescription>
-                  View compliance status and manage certifications
+                  View comprehensive compliance status and manage certifications
                 </DialogDescription>
               </DialogHeader>
               {selectedCompany && (
                 <div className="space-y-6">
-                  {/* Company Info */}
-                  <div className="space-y-4">
-                    <div className="flex items-center gap-4">
-                      <div className="w-16 h-16 bg-blue-100 rounded-lg flex items-center justify-center">
-                        <Building2 className="w-8 h-8 text-blue-600" />
+                  {/* Company Info Header */}
+                  <div className="bg-gradient-to-r from-blue-50 to-indigo-50 rounded-lg p-6">
+                    <div className="flex items-start gap-6">
+                      <div className="w-20 h-20 bg-white rounded-lg shadow-sm flex items-center justify-center">
+                        {selectedCompany.logo ? (
+                          <img src={selectedCompany.logo} alt={selectedCompany.name} className="w-full h-full object-cover rounded-lg" />
+                        ) : (
+                          <Building2 className="w-10 h-10 text-blue-600" />
+                        )}
                       </div>
+                      <div className="flex-1">
+                        <h3 className="text-2xl font-bold text-gray-900 mb-2">{selectedCompany.name}</h3>
+                        <div className="flex items-center gap-4 text-sm text-gray-600 mb-3">
+                          <span className="flex items-center gap-1">
+                            <Building2 className="w-4 h-4" />
+                            {selectedCompany.industry}
+                          </span>
+                          <span className="flex items-center gap-1">
+                            <Users className="w-4 h-4" />
+                            {selectedCompany.userCount} users
+                          </span>
+                          <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(selectedCompany.status)}`}>
+                            {selectedCompany.status}
+                          </span>
+                        </div>
+                        {selectedCompany.description && (
+                          <p className="text-gray-700 mb-3">{selectedCompany.description}</p>
+                        )}
+                        {selectedCompany.website && (
+                          <a href={selectedCompany.website} target="_blank" rel="noopener noreferrer" className="flex items-center text-sm text-blue-600 hover:underline inline-flex">
+                            <Globe className="w-4 h-4 mr-1" />
+                            {selectedCompany.website}
+                            <ArrowRight className="w-3 h-3 ml-1" />
+                          </a>
+                        )}
+                      </div>
+                    </div>
+                  </div>
+
+                  {/* Compliance Status Overview */}
+                  <div className="grid grid-cols-1 md:grid-cols-4 gap-4">
+                    <div className="bg-green-50 border border-green-200 rounded-lg p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <CheckCircle className="w-5 h-5 text-green-600" />
+                        <span className="text-xs text-green-600 font-medium">Active</span>
+                      </div>
+                      <p className="text-2xl font-bold text-green-900">
+                        {selectedCompany.certifications?.filter((c: any) => c.status === 'ACTIVE').length || 0}
+                      </p>
+                      <p className="text-xs text-green-700 mt-1">Active Certifications</p>
+                    </div>
+                    <div className="bg-yellow-50 border border-yellow-200 rounded-lg p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <AlertCircle className="w-5 h-5 text-yellow-600" />
+                        <span className="text-xs text-yellow-600 font-medium">Expiring</span>
+                      </div>
+                      <p className="text-2xl font-bold text-yellow-900">
+                        {selectedCompany.certifications?.filter((c: any) => {
+                          const daysUntilExpiry = Math.ceil((new Date(c.expiryDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+                          return daysUntilExpiry <= 30 && daysUntilExpiry > 0;
+                        }).length || 0}
+                      </p>
+                      <p className="text-xs text-yellow-700 mt-1">Expiring Soon</p>
+                    </div>
+                    <div className="bg-red-50 border border-red-200 rounded-lg p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <X className="w-5 h-5 text-red-600" />
+                        <span className="text-xs text-red-600 font-medium">Expired</span>
+                      </div>
+                      <p className="text-2xl font-bold text-red-900">
+                        {selectedCompany.certifications?.filter((c: any) => {
+                          const daysUntilExpiry = Math.ceil((new Date(c.expiryDate).getTime() - new Date().getTime()) / (1000 * 60 * 60 * 24));
+                          return daysUntilExpiry <= 0;
+                        }).length || 0}
+                      </p>
+                      <p className="text-xs text-red-700 mt-1">Expired</p>
+                    </div>
+                    <div className="bg-blue-50 border border-blue-200 rounded-lg p-4">
+                      <div className="flex items-center justify-between mb-2">
+                        <Award className="w-5 h-5 text-blue-600" />
+                        <span className="text-xs text-blue-600 font-medium">Total</span>
+                      </div>
+                      <p className="text-2xl font-bold text-blue-900">{selectedCompany.certificationCount}</p>
+                      <p className="text-xs text-blue-700 mt-1">Total Certifications</p>
+                    </div>
+                  </div>
+
+                  {/* Detailed Certifications Section */}
+                  <div className="border rounded-lg p-6">
+                    <div className="flex items-center justify-between mb-6">
                       <div>
-                        <h3 className="text-xl font-semibold text-gray-900">{selectedCompany.name}</h3>
-                        <p className="text-gray-600">{selectedCompany.industry}</p>
+                        <h4 className="text-lg font-semibold text-gray-900">Certifications & Compliance</h4>
+                        <p className="text-sm text-gray-600 mt-1">Detailed certificate information and validity status</p>
                       </div>
-                    </div>
-                    {selectedCompany.description && (
-                      <p className="text-sm text-gray-600">{selectedCompany.description}</p>
-                    )}
-                    {selectedCompany.website && (
-                      <a href={selectedCompany.website} target="_blank" rel="noopener noreferrer" className="flex items-center text-sm text-blue-600 hover:underline">
-                        <Globe className="w-4 h-4 mr-1" />
-                        {selectedCompany.website}
-                      </a>
-                    )}
-                  </div>
-
-                  {/* Compliance Status */}
-                  <div className="border rounded-lg p-4">
-                    <h4 className="font-semibold text-gray-900 mb-3">Compliance Status</h4>
-                    <div className="grid grid-cols-2 gap-4">
-                      <div className="bg-green-50 p-3 rounded-lg">
-                        <p className="text-sm text-green-600 font-medium">Active Certifications</p>
-                        <p className="text-2xl font-bold text-green-900">{selectedCompany.certificationCount}</p>
-                      </div>
-                      <div className="bg-blue-50 p-3 rounded-lg">
-                        <p className="text-sm text-blue-600 font-medium">Total Users</p>
-                        <p className="text-2xl font-bold text-blue-900">{selectedCompany.userCount}</p>
-                      </div>
-                    </div>
-                  </div>
-
-                  {/* Certifications List */}
-                  <div className="border rounded-lg p-4">
-                    <div className="flex items-center justify-between mb-3">
-                      <h4 className="font-semibold text-gray-900">Certifications</h4>
                       <Button 
                         size="sm" 
                         variant="outline"
-                        onClick={() => {
-                          // TODO: Implement add certification functionality
-                          alert('Add certification functionality coming soon!');
-                        }}
+                        onClick={() => setShowAddCertificationModal(true)}
                       >
                         <Plus className="w-4 h-4 mr-1" />
                         Add Certification
                       </Button>
                     </div>
+                    
                     {selectedCompany.certifications && selectedCompany.certifications.length > 0 ? (
-                      <div className="space-y-4">
+                      <div className="space-y-6">
                         {selectedCompany.certifications.map((cert: any) => {
                           const expiryDate = new Date(cert.expiryDate);
                           const today = new Date();
                           const daysUntilExpiry = Math.ceil((expiryDate.getTime() - today.getTime()) / (1000 * 60 * 60 * 24));
                           const isExpiringSoon = daysUntilExpiry <= 30 && daysUntilExpiry > 0;
                           const isExpired = daysUntilExpiry <= 0;
+                          const issueDate = new Date(cert.issueDate);
+                          const totalDays = cert.validityDays;
+                          const daysElapsed = Math.ceil((today.getTime() - issueDate.getTime()) / (1000 * 60 * 60 * 24));
+                          const progressPercentage = Math.max(0, Math.min(100, (daysElapsed / totalDays) * 100));
 
                           return (
-                            <div key={cert.id} className="border rounded-lg p-4 bg-gray-50">
-                              <div className="flex items-start justify-between mb-3">
-                                <div className="flex-1">
-                                  <div className="flex items-center gap-2 mb-2">
-                                    <h5 className="font-semibold text-gray-900">{cert.name}</h5>
-                                    <span className={`px-2 py-1 rounded-full text-xs font-medium ${
-                                      isExpired ? 'text-red-600 bg-red-50' :
-                                      isExpiringSoon ? 'text-yellow-600 bg-yellow-50' :
-                                      getStatusColor(cert.status)
-                                    }`}>
-                                      {isExpired ? 'EXPIRED' : isExpiringSoon ? 'EXPIRING SOON' : cert.status}
-                                    </span>
-                                  </div>
-                                  <p className="text-sm text-gray-600 mb-2">{cert.certificateType}</p>
-                                  {cert.description && (
-                                    <p className="text-sm text-gray-500 mb-3">{cert.description}</p>
-                                  )}
-                                </div>
-                                <div className="flex items-center gap-2">
-                                  <Button size="sm" variant="ghost">
-                                    <Trash2 className="w-4 h-4" />
-                                  </Button>
-                                </div>
-                              </div>
-
-                              <div className="grid grid-cols-1 md:grid-cols-2 gap-4 text-sm">
-                                <div className="space-y-2">
-                                  <div>
-                                    <span className="font-medium text-gray-700">Certificate ID:</span>
-                                    <span className="ml-2 text-gray-600">{cert.certificateId}</span>
-                                  </div>
-                                  <div>
-                                    <span className="font-medium text-gray-700">Issuing Body:</span>
-                                    <span className="ml-2 text-gray-600">{cert.issuingBody}</span>
-                                  </div>
-                                  <div>
-                                    <span className="font-medium text-gray-700">Owner:</span>
-                                    <span className="ml-2 text-gray-600">{cert.owner || 'Not assigned'}</span>
-                                  </div>
-                                  {cert.department && (
-                                    <div>
-                                      <span className="font-medium text-gray-700">Department:</span>
-                                      <span className="ml-2 text-gray-600">{cert.department}</span>
+                            <div key={cert.id} className="border rounded-lg overflow-hidden">
+                              {/* Certificate Header */}
+                              <div className={`p-4 border-l-4 ${
+                                isExpired ? 'bg-red-50 border-red-500' :
+                                isExpiringSoon ? 'bg-yellow-50 border-yellow-500' :
+                                cert.status === 'ACTIVE' ? 'bg-green-50 border-green-500' :
+                                'bg-gray-50 border-gray-500'
+                              }`}>
+                                <div className="flex items-start justify-between">
+                                  <div className="flex-1">
+                                    <div className="flex items-center gap-3 mb-2">
+                                      <h5 className="text-lg font-semibold text-gray-900">{cert.name}</h5>
+                                      <span className={`px-3 py-1 rounded-full text-xs font-medium ${
+                                        isExpired ? 'text-red-700 bg-red-100' :
+                                        isExpiringSoon ? 'text-yellow-700 bg-yellow-100' :
+                                        cert.status === 'ACTIVE' ? 'text-green-700 bg-green-100' :
+                                        'text-gray-700 bg-gray-100'
+                                      }`}>
+                                        {isExpired ? 'EXPIRED' : isExpiringSoon ? `EXPIRING IN ${daysUntilExpiry} DAYS` : cert.status}
+                                      </span>
+                                      <span className="px-2 py-1 bg-blue-100 text-blue-700 rounded text-xs font-medium">
+                                        {cert.certificateType}
+                                      </span>
                                     </div>
-                                  )}
-                                </div>
-
-                                <div className="space-y-2">
-                                  <div>
-                                    <span className="font-medium text-gray-700">Issue Date:</span>
-                                    <span className="ml-2 text-gray-600">{new Date(cert.issueDate).toLocaleDateString()}</span>
+                                    {cert.description && (
+                                      <p className="text-gray-700 mb-3">{cert.description}</p>
+                                    )}
+                                    
+                                    {/* Validity Progress Bar */}
+                                    <div className="mb-3">
+                                      <div className="flex items-center justify-between text-xs text-gray-600 mb-1">
+                                        <span>Validity Progress</span>
+                                        <span>{Math.round(progressPercentage)}% complete</span>
+                                      </div>
+                                      <div className="w-full bg-gray-200 rounded-full h-2">
+                                        <div 
+                                          className={`h-2 rounded-full ${
+                                            isExpired ? 'bg-red-500' :
+                                            isExpiringSoon ? 'bg-yellow-500' :
+                                            progressPercentage > 80 ? 'bg-orange-500' :
+                                            'bg-green-500'
+                                          }`}
+                                          style={{ width: `${Math.min(100, progressPercentage)}%` }}
+                                        ></div>
+                                      </div>
+                                    </div>
                                   </div>
-                                  <div>
-                                    <span className="font-medium text-gray-700">Expiry Date:</span>
-                                    <span className={`ml-2 ${isExpired ? 'text-red-600 font-semibold' : isExpiringSoon ? 'text-yellow-600 font-semibold' : 'text-gray-600'}`}>
-                                      {expiryDate.toLocaleDateString()}
-                                      {isExpired && ' (Expired)'}
-                                      {isExpiringSoon && ` (${daysUntilExpiry} days)`}
-                                    </span>
-                                  </div>
-                                  <div>
-                                    <span className="font-medium text-gray-700">Validity Period:</span>
-                                    <span className="ml-2 text-gray-600">{cert.validityDays} days</span>
-                                  </div>
-                                  <div>
-                                    <span className="font-medium text-gray-700">Renewal Reminder:</span>
-                                    <span className="ml-2 text-gray-600">{cert.renewalReminderDays} days before</span>
+                                  
+                                  <div className="flex items-center gap-2 ml-4">
+                                    <Button size="sm" variant="outline" className="text-blue-600">
+                                      <Eye className="w-4 h-4 mr-1" />
+                                      View
+                                    </Button>
+                                    <Button size="sm" variant="ghost" className="text-gray-500">
+                                      <Edit className="w-4 h-4" />
+                                    </Button>
                                   </div>
                                 </div>
                               </div>
 
-                              {cert.user && (
-                                <div className="mt-3 pt-3 border-t border-gray-200">
-                                  <span className="font-medium text-gray-700 text-sm">Assigned to:</span>
-                                  <span className="ml-2 text-sm text-gray-600">
-                                    {cert.user.firstName} {cert.user.lastName} ({cert.user.email})
-                                  </span>
-                                </div>
-                              )}
+                              {/* Certificate Details Grid */}
+                              <div className="p-4 bg-white">
+                                <div className="grid grid-cols-1 md:grid-cols-3 gap-6">
+                                  {/* Certificate Information */}
+                                  <div className="space-y-3">
+                                    <h6 className="font-semibold text-gray-900 text-sm border-b pb-2">Certificate Information</h6>
+                                    <div className="space-y-2 text-sm">
+                                      <div className="flex justify-between">
+                                        <span className="text-gray-600">Certificate ID:</span>
+                                        <span className="font-mono text-gray-900">{cert.certificateId}</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span className="text-gray-600">Type:</span>
+                                        <span className="text-gray-900">{cert.certificateType}</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span className="text-gray-600">Status:</span>
+                                        <span className={`font-medium ${
+                                          isExpired ? 'text-red-600' :
+                                          isExpiringSoon ? 'text-yellow-600' :
+                                          cert.status === 'ACTIVE' ? 'text-green-600' :
+                                          'text-gray-600'
+                                        }`}>
+                                          {isExpired ? 'Expired' : isExpiringSoon ? 'Expiring Soon' : cert.status}
+                                        </span>
+                                      </div>
+                                    </div>
+                                  </div>
 
-                              {cert.evidenceUrls && cert.evidenceUrls.length > 0 && (
-                                <div className="mt-3 pt-3 border-t border-gray-200">
-                                  <span className="font-medium text-gray-700 text-sm">Evidence Documents:</span>
-                                  <div className="mt-1 flex flex-wrap gap-2">
-                                    {cert.evidenceUrls.map((url: string, index: number) => (
-                                      <a
-                                        key={index}
-                                        href={url}
-                                        target="_blank"
-                                        rel="noopener noreferrer"
-                                        className="text-xs text-blue-600 hover:underline"
-                                      >
-                                        Document {index + 1}
-                                      </a>
-                                    ))}
+                                  {/* Issuing Authority */}
+                                  <div className="space-y-3">
+                                    <h6 className="font-semibold text-gray-900 text-sm border-b pb-2">Issuing Authority</h6>
+                                    <div className="space-y-2 text-sm">
+                                      <div className="flex justify-between">
+                                        <span className="text-gray-600">Issuing Body:</span>
+                                        <span className="text-gray-900">{cert.issuingBody}</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span className="text-gray-600">Issue Date:</span>
+                                        <span className="text-gray-900">{issueDate.toLocaleDateString()}</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span className="text-gray-600">Expiry Date:</span>
+                                        <span className={`font-medium ${
+                                          isExpired ? 'text-red-600' :
+                                          isExpiringSoon ? 'text-yellow-600' :
+                                          'text-gray-900'
+                                        }`}>
+                                          {expiryDate.toLocaleDateString()}
+                                        </span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span className="text-gray-600">Validity Period:</span>
+                                        <span className="text-gray-900">{cert.validityDays} days</span>
+                                      </div>
+                                      <div className="flex justify-between">
+                                        <span className="text-gray-600">Renewal Reminder:</span>
+                                        <span className="text-gray-900">{cert.renewalReminderDays} days before</span>
+                                      </div>
+                                    </div>
+                                  </div>
+
+                                  {/* Assignment & Contact */}
+                                  <div className="space-y-3">
+                                    <h6 className="font-semibold text-gray-900 text-sm border-b pb-2">Assignment</h6>
+                                    <div className="space-y-2 text-sm">
+                                      <div className="flex justify-between">
+                                        <span className="text-gray-600">Owner:</span>
+                                        <span className="text-gray-900">{cert.owner || 'Not assigned'}</span>
+                                      </div>
+                                      {cert.department && (
+                                        <div className="flex justify-between">
+                                          <span className="text-gray-600">Department:</span>
+                                          <span className="text-gray-900">{cert.department}</span>
+                                        </div>
+                                      )}
+                                      {cert.user && (
+                                        <div className="mt-3 pt-3 border-t">
+                                          <span className="text-gray-600 block mb-1">Assigned to:</span>
+                                          <div className="flex items-center gap-2">
+                                            <div className="w-6 h-6 bg-blue-100 rounded-full flex items-center justify-center">
+                                              <span className="text-xs font-medium text-blue-600">
+                                                {cert.user.firstName[0]}{cert.user.lastName[0]}
+                                              </span>
+                                            </div>
+                                            <span className="text-gray-900">
+                                              {cert.user.firstName} {cert.user.lastName}
+                                            </span>
+                                          </div>
+                                          <span className="text-xs text-gray-500">{cert.user.email}</span>
+                                        </div>
+                                      )}
+                                    </div>
                                   </div>
                                 </div>
-                              )}
+
+                                {/* Evidence Documents */}
+                                {cert.evidenceUrls && cert.evidenceUrls.length > 0 && (
+                                  <div className="mt-4 pt-4 border-t">
+                                    <h6 className="font-semibold text-gray-900 text-sm mb-3">Evidence Documents</h6>
+                                    <div className="flex flex-wrap gap-2">
+                                      {cert.evidenceUrls.map((url: string, index: number) => (
+                                        <a
+                                          key={index}
+                                          href={url}
+                                          target="_blank"
+                                          rel="noopener noreferrer"
+                                          className="inline-flex items-center gap-1 px-3 py-1 bg-gray-100 hover:bg-gray-200 rounded text-sm text-gray-700 transition-colors"
+                                        >
+                                          <Globe className="w-3 h-3" />
+                                          Document {index + 1}
+                                        </a>
+                                      ))}
+                                    </div>
+                                  </div>
+                                )}
+                              </div>
                             </div>
                           );
                         })}
                       </div>
                     ) : (
-                      <p className="text-sm text-gray-500 text-center py-4">No certifications assigned</p>
+                      <div className="text-center py-8">
+                        <Award className="w-12 h-12 text-gray-400 mx-auto mb-4" />
+                        <h5 className="text-lg font-medium text-gray-900 mb-2">No Certifications Yet</h5>
+                        <p className="text-gray-600 mb-4">This company doesn't have any certifications assigned yet.</p>
+                        <Button onClick={() => setShowAddCertificationModal(true)}>
+                          <Plus className="w-4 h-4 mr-2" />
+                          Add First Certification
+                        </Button>
+                      </div>
                     )}
                   </div>
                 </div>
@@ -1071,8 +1360,144 @@ export default function CompaniesPage() {
               </DialogFooter>
             </DialogContent>
           </Dialog>
-        </motion.div>
+
+          {/* Add Certification Modal */}
+          <Dialog open={showAddCertificationModal} onOpenChange={setShowAddCertificationModal}>
+            <DialogContent className="sm:max-w-[600px] max-h-[90vh] overflow-y-auto">
+              <DialogHeader>
+                <DialogTitle>Add New Certification</DialogTitle>
+                <DialogDescription>
+                  Add a new certification to {selectedCompany?.name}
+                </DialogDescription>
+              </DialogHeader>
+              <div className="grid gap-4 py-4">
+                <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+                  <div>
+                    <label htmlFor="certName" className="text-sm font-medium mb-1 block">Certification Name *</label>
+                    <Input
+                      id="certName"
+                      placeholder="e.g., ISO 27001"
+                      value={certificationFormData.name}
+                      onChange={(e) => setCertificationFormData({ ...certificationFormData, name: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="certId" className="text-sm font-medium mb-1 block">Certificate ID *</label>
+                    <Input
+                      id="certId"
+                      placeholder="e.g., ISO-27001-001"
+                      value={certificationFormData.certificateId}
+                      onChange={(e) => setCertificationFormData({ ...certificationFormData, certificateId: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="certType" className="text-sm font-medium mb-1 block">Certificate Type *</label>
+                    <select
+                      id="certType"
+                      value={certificationFormData.certificateType}
+                      onChange={(e) => setCertificationFormData({ ...certificationFormData, certificateType: e.target.value })}
+                      className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                    >
+                      <option value="">Select type</option>
+                      <option value="ISO">ISO</option>
+                      <option value="SOC 2">SOC 2</option>
+                      <option value="HIPAA">HIPAA</option>
+                      <option value="PCI DSS">PCI DSS</option>
+                      <option value="GDPR">GDPR</option>
+                      <option value="NIST">NIST</option>
+                      <option value="Other">Other</option>
+                    </select>
+                  </div>
+                  <div>
+                    <label htmlFor="issuingBody" className="text-sm font-medium mb-1 block">Issuing Body *</label>
+                    <Input
+                      id="issuingBody"
+                      placeholder="e.g., ISO Certification Body"
+                      value={certificationFormData.issuingBody}
+                      onChange={(e) => setCertificationFormData({ ...certificationFormData, issuingBody: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="issueDate" className="text-sm font-medium mb-1 block">Issue Date *</label>
+                    <Input
+                      id="issueDate"
+                      type="date"
+                      value={certificationFormData.issueDate}
+                      onChange={(e) => setCertificationFormData({ ...certificationFormData, issueDate: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="expiryDate" className="text-sm font-medium mb-1 block">Expiry Date *</label>
+                    <Input
+                      id="expiryDate"
+                      type="date"
+                      value={certificationFormData.expiryDate}
+                      onChange={(e) => setCertificationFormData({ ...certificationFormData, expiryDate: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="validityDays" className="text-sm font-medium mb-1 block">Validity Period (days)</label>
+                    <Input
+                      id="validityDays"
+                      type="number"
+                      placeholder="365"
+                      value={certificationFormData.validityDays}
+                      onChange={(e) => setCertificationFormData({ ...certificationFormData, validityDays: parseInt(e.target.value) || 365 })}
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="renewalReminder" className="text-sm font-medium mb-1 block">Renewal Reminder (days before)</label>
+                    <Input
+                      id="renewalReminder"
+                      type="number"
+                      placeholder="30"
+                      value={certificationFormData.renewalReminderDays}
+                      onChange={(e) => setCertificationFormData({ ...certificationFormData, renewalReminderDays: parseInt(e.target.value) || 30 })}
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="owner" className="text-sm font-medium mb-1 block">Owner</label>
+                    <Input
+                      id="owner"
+                      placeholder="e.g., John Doe"
+                      value={certificationFormData.owner}
+                      onChange={(e) => setCertificationFormData({ ...certificationFormData, owner: e.target.value })}
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="department" className="text-sm font-medium mb-1 block">Department</label>
+                    <Input
+                      id="department"
+                      placeholder="e.g., IT Security"
+                      value={certificationFormData.department}
+                      onChange={(e) => setCertificationFormData({ ...certificationFormData, department: e.target.value })}
+                    />
+                  </div>
+                </div>
+                <div className="col-span-full">
+                  <label htmlFor="description" className="text-sm font-medium mb-1 block">Description</label>
+                  <textarea
+                    id="description"
+                    rows={3}
+                    placeholder="Enter certification description"
+                    value={certificationFormData.description}
+                    onChange={(e) => setCertificationFormData({ ...certificationFormData, description: e.target.value })}
+                    className="w-full px-3 py-2 border border-gray-300 rounded-lg focus:outline-none focus:ring-2 focus:ring-blue-500"
+                  />
+                </div>
+              </div>
+              <DialogFooter>
+                <Button variant="outline" onClick={() => setShowAddCertificationModal(false)}>
+                  Cancel
+                </Button>
+                <Button onClick={handleAddCertification}>
+                  <Plus className="w-4 h-4 mr-2" />
+                  Add Certification
+                </Button>
+              </DialogFooter>
+            </DialogContent>
+          </Dialog>
+        </div>
       </div>
-    </div>
   );
 }

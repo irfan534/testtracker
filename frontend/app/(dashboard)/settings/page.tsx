@@ -22,7 +22,6 @@ interface UserSettings {
     weeklyReports: boolean;
   };
   security: {
-    twoFactorEnabled: boolean;
     sessionTimeout: number;
     loginNotifications: boolean;
   };
@@ -40,7 +39,6 @@ export default function SettingsPage() {
       weeklyReports: false,
     },
     security: {
-      twoFactorEnabled: false,
       sessionTimeout: 24,
       loginNotifications: true,
     },
@@ -187,16 +185,6 @@ export default function SettingsPage() {
                     <h2 className="text-2xl font-bold text-gray-900 mb-6">Security Settings</h2>
                     
                     <div className="space-y-6">
-                      <div className="flex items-center justify-between p-4 border rounded-lg">
-                        <div>
-                          <h3 className="font-medium text-gray-900">Two-Factor Authentication</h3>
-                          <p className="text-sm text-gray-600">Add an extra layer of security to your account</p>
-                        </div>
-                        <Badge className={settings.security.twoFactorEnabled ? 'bg-green-100 text-green-700' : 'bg-gray-100 text-gray-700'}>
-                          {settings.security.twoFactorEnabled ? 'Enabled' : 'Disabled'}
-                        </Badge>
-                      </div>
-
                       <div className="p-4 border rounded-lg">
                         <h3 className="font-medium text-gray-900 mb-4">Session Timeout</h3>
                         <select

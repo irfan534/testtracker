@@ -329,12 +329,12 @@ export default function ReportsPage() {
                       <div className="flex items-center gap-2">
                         <AlertCircle className="w-4 h-4 text-red-600" />
                         <p className="text-sm text-red-600">
-                          {complianceError?.response?.status === 401
+                          {'response' in complianceError && (complianceError as any).response?.status === 401
                             ? 'Authentication required.'
                             : 'Failed to load compliance report.'}
                         </p>
                       </div>
-                      {complianceError?.response?.status === 401 && (
+                      {'response' in complianceError && (complianceError as any).response?.status === 401 && (
                         <Button
                           size="sm"
                           variant="outline"
@@ -472,12 +472,12 @@ export default function ReportsPage() {
                       <div className="flex items-center gap-2">
                         <AlertCircle className="w-4 h-4 text-red-600" />
                         <p className="text-sm text-red-600">
-                          {expiryError?.response?.status === 401
+                          {'response' in expiryError && (expiryError as any).response?.status === 401
                             ? 'Authentication required.'
                             : 'Failed to load expiry report.'}
                         </p>
                       </div>
-                      {expiryError?.response?.status === 401 && (
+                      {'response' in expiryError && (expiryError as any).response?.status === 401 && (
                         <Button
                           size="sm"
                           variant="outline"

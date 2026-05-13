@@ -1,6 +1,9 @@
 'use client';
 
 import { useEffect } from 'react';
+
+// Prevent static generation
+export const dynamic = 'force-dynamic';
 import { useRouter } from 'next/navigation';
 
 export default function HomePage() {

@@ -50,6 +50,16 @@ check_prerequisites() {
         exit 1
     fi
     
+    # Check for critical build files
+    if [ ! -f "backend/nest-cli.json" ]; then
+        print_warning "backend/nest-cli.json not found. Ensuring backend is valid..."
+    fi
+
+    if [ ! -d "frontend/app" ] && [ ! -d "frontend/src" ]; then
+        print_error "Frontend source directory (app or src) not found."
+        exit 1
+    fi
+
     print_status "Prerequisites check completed ✓"
 }
 
@@ -110,7 +120,7 @@ health_check() {
     print_status "Performing health checks..."
     
     # Check backend health
-    if curl -f http://localhost:3001/health > /dev/null 2>&1; then
+    if curl -f http://localhost:3001/api/health > /dev/null 2>&1; then
         print_status "Backend health check passed ✓"
     else
         print_error "Backend health check failed"

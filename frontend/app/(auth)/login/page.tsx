@@ -1,16 +1,23 @@
 'use client';
 
 import { useState } from 'react';
+
+// Prevent static generation
+export const dynamic = 'force-dynamic';
 import { useRouter } from 'next/navigation';
 import { useLogin } from '@/lib/hooks';
 import { useAuthStore } from '@/lib/store';
 import Cookies from 'js-cookie';
 import { motion } from 'framer-motion';
+import { TwoFactorAuthResponse } from '@/types';
 
 export default function LoginPage() {
   const router = useRouter();
   const setUser = useAuthStore((state) => state.setUser);
   const setAccessToken = useAuthStore((state) => state.setAccessToken);
+  const setMfaEnabled = useAuthStore((state) => state.setMfaEnabled);
+  const setTempToken = useAuthStore((state) => state.setTempToken);
+  const setPending2FAUser = useAuthStore((state) => state.setPending2FAUser);
 
   const [email, setEmail] = useState('');
   const [password, setPassword] = useState('');
@@ -18,6 +25,11 @@ export default function LoginPage() {
   const [loading, setLoading] = useState(false);
 
   const loginMutation = useLogin();
+
+  // Type guard function
+  const isTwoFactorResponse = (data: any): data is TwoFactorAuthResponse => {
+    return data && typeof data === 'object' && 'requires2FA' in data;
+  };
 
   const handleLogin = async (e: React.FormEvent) => {
     e.preventDefault();
@@ -28,6 +40,24 @@ export default function LoginPage() {
       console.log('Attempting login with:', email);
       const response = await loginMutation.mutateAsync({ email, password });
       console.log('Login response:', response);
+
+      // Check if 2FA is required
+      if (isTwoFactorResponse(response.data)) {
+        const { tempToken, user } = response.data;
+        
+        // Store 2FA state
+        setTempToken(tempToken || '');
+        setPending2FAUser({
+          id: user.id,
+          email: user.email,
+          firstName: user.firstName,
+          lastName: user.lastName,
+        });
+
+        console.log('2FA required, redirecting...');
+        router.push('/2fa');
+        return;
+      }
 
       const { accessToken, user } = response.data;
       console.log('Access token:', accessToken);
@@ -43,6 +73,7 @@ export default function LoginPage() {
 
       setUser(user);
       setAccessToken(accessToken);
+      setMfaEnabled(user.mfaEnabled || false);
 
       console.log('Redirecting to dashboard...');
       router.push('/dashboard');
@@ -50,11 +81,16 @@ export default function LoginPage() {
       console.error('Login error:', err);
       console.error('Error response:', err.response);
       console.error('Error message:', err.message);
-      setError(
-        err.response?.data?.message ||
-        err.message ||
-        'Login failed. Please check your credentials.'
-      );
+
+      if (err.message === 'Network Error') {
+        setError('Cannot connect to the server. Please ensure the backend API is running and your connection is secure.');
+      } else {
+        setError(
+          err.response?.data?.message ||
+          err.message ||
+          'Login failed. Please check your credentials.'
+        );
+      }
     } finally {
       setLoading(false);
     }

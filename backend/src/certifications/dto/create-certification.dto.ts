@@ -4,12 +4,6 @@ export class CreateCertificationDto {
   @IsString()
   name: string;
 
-  @IsString()
-  certificateId: string;
-
-  @IsString()
-  certificateType: string;
-
   @IsDate()
   issueDate: Date;
 
@@ -33,4 +27,16 @@ export class CreateCertificationDto {
   @IsOptional()
   @IsString()
   description?: string;
+
+  @IsOptional()
+  @IsNumber()
+  renewalReminderDays?: number;
+
+  @IsOptional()
+  @IsString()
+  organizationId?: string;
+
+  @IsOptional()
+  @IsString()
+  userId?: string;
 }
